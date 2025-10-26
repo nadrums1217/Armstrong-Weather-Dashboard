@@ -29,9 +29,8 @@ const THEMES = {
   arctic: { name: 'Arctic', bg: 'theme-arctic', card: 'bg-white bg-opacity-40', border: 'border-gray-300', text: 'text-gray-900' }
 };
 
-/* ---------- New York time helpers, no Date parsing of API strings ---------- */
+/* ---------- NY time helpers, string based ---------- */
 
-// "2025-10-26"
 function todayYMD_NY() {
   const now = new Date();
   const ny = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }));
@@ -41,7 +40,6 @@ function todayYMD_NY() {
   return `${y}-${m}-${d}`;
 }
 
-// "2025-10-26T14:00"
 function nyNowHourKey() {
   const now = new Date();
   const ny = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }));
@@ -52,7 +50,6 @@ function nyNowHourKey() {
   return `${y}-${m}-${d}T${H}:00`;
 }
 
-// find today, else first future day by ISO string compare
 function findStartIdxTodayOrNext(dates) {
   const today = todayYMD_NY();
   let idx = dates.findIndex(d => d === today);
@@ -61,7 +58,6 @@ function findStartIdxTodayOrNext(dates) {
   return idx >= 0 ? idx : 0;
 }
 
-// format "YYYY-MM-DDTHH:mm" into "h:mm AM/PM", no Date parsing
 function formatLocalClock(s) {
   if (!s) return '';
   const hh = parseInt(s.slice(11, 13), 10);
@@ -71,14 +67,11 @@ function formatLocalClock(s) {
   return `${h12}:${mm} ${ampm}`;
 }
 
-// format "YYYY-MM-DD" into "Mon D", no Date parsing
 function formatYMDToLabel(s) {
   if (!s) return '';
-  const y = s.slice(0, 4);
   const m = parseInt(s.slice(5, 7), 10);
   const d = parseInt(s.slice(8, 10), 10);
   const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-  if (!y || !m || !d) return s;
   return `${months[m - 1]} ${d}`;
 }
 
@@ -95,10 +88,14 @@ class WeatherAnimator {
       const appRoot = document.getElementById('app');
       if (appRoot) appRoot.classList.add('relative', 'z-10');
     }
-    const ctx = this.canvas.getContext('2d');
-    if (!ctx) throw new Error('2D context not available');
+    const ctx = this.canvas.getContext && this.canvas.getContext('2d');
+    if (!ctx) {
+      this.ctx = null;
+      this.particles = [];
+      this._raf = null;
+      return;
+    }
     this.ctx = ctx;
-
     this.particles = [];
     this._raf = null;
 
@@ -107,6 +104,7 @@ class WeatherAnimator {
   }
 
   resize() {
+    if (!this.ctx) return;
     const dpr = window.devicePixelRatio || 1;
     const w = window.innerWidth;
     const h = window.innerHeight;
@@ -118,6 +116,7 @@ class WeatherAnimator {
   }
 
   clear() {
+    if (!this.ctx) return;
     this.particles = [];
     this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
     if (this._raf) {
@@ -127,6 +126,7 @@ class WeatherAnimator {
   }
 
   createRain() {
+    if (!this.ctx) return;
     this.clear();
     for (let i = 0; i < 100; i++) {
       this.particles.push({
@@ -140,6 +140,7 @@ class WeatherAnimator {
   }
 
   animateRain() {
+    if (!this.ctx) return;
     this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
     this.ctx.strokeStyle = 'rgba(174, 194, 224, 0.5)';
     this.ctx.lineWidth = 2;
@@ -163,6 +164,7 @@ class WeatherAnimator {
   }
 
   createSnow() {
+    if (!this.ctx) return;
     this.clear();
     for (let i = 0; i < 50; i++) {
       this.particles.push({
@@ -177,6 +179,7 @@ class WeatherAnimator {
   }
 
   animateSnow() {
+    if (!this.ctx) return;
     this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
     this.ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
 
@@ -200,11 +203,13 @@ class WeatherAnimator {
   }
 
   createSunny() {
+    if (!this.ctx) return;
     this.clear();
     this.animateSunny();
   }
 
   animateSunny() {
+    if (!this.ctx) return;
     this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
 
     const centerX = this.canvas.width - 100;
@@ -238,6 +243,7 @@ class WeatherAnimator {
   }
 
   createCloudy() {
+    if (!this.ctx) return;
     this.clear();
     for (let i = 0; i < 5; i++) {
       this.particles.push({
@@ -251,6 +257,7 @@ class WeatherAnimator {
   }
 
   animateCloudy() {
+    if (!this.ctx) return;
     this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
 
     this.particles.forEach(p => {
@@ -277,8 +284,8 @@ let animator = null;
 
 function updateWeatherAnimation() {
   if (!animator) animator = new WeatherAnimator();
-  if (!state.settings.animations) {
-    animator.clear();
+  if (!state.settings.animations || !animator.ctx) {
+    animator && animator.clear();
     return;
   }
   const weather = state.weather.city1 || state.weather.city2;
@@ -314,7 +321,6 @@ async function fetch30DayHistory(lat, lon) {
     const endDate = new Date();
     const startDate = new Date();
     startDate.setDate(startDate.getDate() - 30);
-
     const start = startDate.toISOString().split('T')[0];
     const end = endDate.toISOString().split('T')[0];
 
@@ -328,7 +334,7 @@ async function fetch30DayHistory(lat, lon) {
       high: data.daily.temperature_2m_max[i],
       low: data.daily.temperature_2m_min[i]
     }));
-  } catch (e) {
+  } catch {
     return [];
   }
 }
@@ -339,7 +345,7 @@ async function fetchAQI(lat, lon) {
     const response = await fetch(url);
     if (!response.ok) return null;
     return response.json();
-  } catch (e) {
+  } catch {
     return null;
   }
 }
@@ -355,7 +361,7 @@ async function fetchHistoricalWeather(lat, lon) {
     const response = await fetch(url);
     if (!response.ok) return null;
     return response.json();
-  } catch (e) {
+  } catch {
     return null;
   }
 }
@@ -389,7 +395,7 @@ async function shareWeather() {
 
     const fileName = 'armstrong-weather.png';
 
-    const downloadPNG = () => {
+    const fallbackDownload = () => {
       const url = canvas.toDataURL('image/png');
       const a = document.createElement('a');
       a.href = url;
@@ -399,47 +405,32 @@ async function shareWeather() {
       a.remove();
     };
 
-    if (navigator.canShare || navigator.share) {
+    if (navigator.share) {
       canvas.toBlob(async blob => {
-        if (!blob) {
-          downloadPNG();
-          return;
-        }
-
-        let fileObj;
         try {
-          fileObj = new File([blob], fileName, { type: 'image/png' });
-        } catch {
-          fileObj = blob;
-        }
-
-        if (navigator.canShare && navigator.canShare({ files: [fileObj] })) {
-          try {
-            await navigator.share({
-              files: [fileObj],
-              title: 'Armstrong Weather Dashboard',
-              text: `Weather comparison, ${state.settings.city1.name} vs ${state.settings.city2.name}`
-            });
-            return;
-          } catch {
-            downloadPNG();
-            return;
+          if (blob) {
+            let f;
+            try { f = new File([blob], fileName, { type: 'image/png' }); } catch { f = blob; }
+            if (navigator.canShare && navigator.canShare({ files: [f] })) {
+              await navigator.share({
+                files: [f],
+                title: 'Armstrong Weather Dashboard',
+                text: `Weather comparison, ${state.settings.city1.name} vs ${state.settings.city2.name}`
+              });
+              return;
+            }
           }
-        }
-
-        const dataUrl = canvas.toDataURL('image/png');
-        try {
           await navigator.share({
             title: 'Armstrong Weather Dashboard',
             text: `Weather comparison, ${state.settings.city1.name} vs ${state.settings.city2.name}`,
-            url: dataUrl
+            url: canvas.toDataURL('image/png')
           });
         } catch {
-          downloadPNG();
+          fallbackDownload();
         }
       }, 'image/png');
     } else {
-      downloadPNG();
+      fallbackDownload();
     }
   } catch (error) {
     console.error('Share failed:', error);
@@ -458,19 +449,26 @@ async function shareWeather() {
 /* --------------------------------- Load -------------------------------- */
 
 async function loadWeather() {
-  state.loading = true;
-  state.error = null;
-
-  if (state.weather.city1 && state.weather.city2) {
-    state.previousWeather = {
-      city1: JSON.parse(JSON.stringify(state.weather.city1)),
-      city2: JSON.parse(JSON.stringify(state.weather.city2))
-    };
-  }
-
-  render();
-
   try {
+    // ensure #app exists
+    if (!document.getElementById('app')) {
+      const a = document.createElement('div');
+      a.id = 'app';
+      document.body.appendChild(a);
+    }
+
+    state.loading = true;
+    state.error = null;
+
+    if (state.weather.city1 && state.weather.city2) {
+      state.previousWeather = {
+        city1: JSON.parse(JSON.stringify(state.weather.city1)),
+        city2: JSON.parse(JSON.stringify(state.weather.city2))
+      };
+    }
+
+    render();
+
     const [data1, data2, aqi1, aqi2, hist1, hist2, history1, history2] = await Promise.all([
       fetchWeather(state.settings.city1.lat, state.settings.city1.lon),
       fetchWeather(state.settings.city2.lat, state.settings.city2.lon),
@@ -495,12 +493,12 @@ async function loadWeather() {
       checkWeatherChanges();
     }
   } catch (error) {
-    state.error = error.message;
     console.error('Error:', error);
+    state.error = String(error && error.message ? error.message : error);
+  } finally {
+    state.loading = false;
+    render();
   }
-
-  state.loading = false;
-  render();
 }
 
 /* ----------------------------- Comparisons ----------------------------- */
@@ -560,8 +558,12 @@ function getMoonPhase() {
   const day = date.getDate();
   let c = 0, e = 0, jd = 0, b = 0;
 
-  if (month < 3) { year++; month += 12; } // keep original algorithm sign if you prefer, this variant is fine
-  c = 365.25 * (year - 1);
+  // original stable version
+  if (month < 3) {
+    year--;
+    month += 12;
+  }
+  c = 365.25 * year;
   e = 30.6 * (month + 1);
   jd = c + e + day - 694039.09;
   jd /= 29.5305882;
@@ -724,7 +726,19 @@ function getComparisonStats(data1, data2) {
 function createChart(canvasId, type, data, options) {
   const canvas = document.getElementById(canvasId);
   if (!canvas) return;
-  const ctx = canvas.getContext('2d');
+  const ctx = canvas.getContext && canvas.getContext('2d');
+  if (!ctx) return;
+  if (typeof Chart === 'undefined') {
+    // show a small note once
+    const holder = canvas.parentElement;
+    if (holder && !holder.querySelector('.chart-warning')) {
+      const note = document.createElement('div');
+      note.className = 'chart-warning text-sm opacity-70 mt-2';
+      note.textContent = 'Charts unavailable. Chart.js not loaded.';
+      holder.appendChild(note);
+    }
+    return;
+  }
   if (canvas.chart) canvas.chart.destroy();
   canvas.chart = new Chart(ctx, { type, data, options });
 }
@@ -1006,7 +1020,6 @@ function renderWeatherCard(data, cityName, theme, isWinner, animationClass) {
   const current = data.current;
   const daily = data.daily;
   const uvInfo = getUVLevel(current.uv_index || 0);
-
   const todayIdx = findStartIdxTodayOrNext(daily.time);
 
   const tempClass = state.previousWeather.city1 &&
@@ -1311,6 +1324,11 @@ function saveSettings() {
 /* --------------------------------- Boot -------------------------------- */
 
 window.addEventListener('DOMContentLoaded', () => {
+  if (!document.getElementById('app')) {
+    const a = document.createElement('div');
+    a.id = 'app';
+    document.body.appendChild(a);
+  }
   loadWeather();
   if (state.settings.autoRefresh) {
     setInterval(loadWeather, 3600000);
