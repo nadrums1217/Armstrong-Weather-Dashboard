@@ -93,7 +93,6 @@ function formatFullDayDate(ymd) {
   return `${weekday}, ${month} ${d}${ordinal(d)}`;
 }
 
-/* new, short weekday plus short month for tight alignment */
 function formatShortDayDate(ymd) {
   if (!ymd) return '';
   const [y, m, d] = ymd.split('-').map(Number);
@@ -109,7 +108,6 @@ function formatShortDayDate(ymd) {
 function injectStyles() {
   if (document.getElementById('armstrong-style')) return;
   const css = `
-  /* winner glow */
   @keyframes pulse-green {
     0% { box-shadow: 0 0 0 0 rgba(34,197,94,0.55); }
     60% { box-shadow: 0 0 40px 18px rgba(34,197,94,0); }
@@ -360,6 +358,19 @@ function updateWeatherAnimation() {
   else animator.createRain();
 }
 
+/* ============================ FETCH HELPERS =========================== */
+
+async function fetchWithTimeout(url, ms = 12000) {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), ms);
+  try {
+    const res = await fetch(url, { signal: ctrl.signal });
+    return res;
+  } finally {
+    clearTimeout(t);
+  }
+}
+
 /* ============================== FETCHERS ============================== */
 
 async function fetchWeather(lat, lon) {
@@ -373,7 +384,7 @@ async function fetchWeather(lat, lon) {
     `&wind_speed_unit=mph` +
     `&timezone=America%2FNew_York` +
     `&past_days=0`;
-  const response = await fetch(url);
+  const response = await fetchWithTimeout(url);
   if (!response.ok) throw new Error(`HTTP error, status: ${response.status}`);
   return response.json();
 }
@@ -387,7 +398,7 @@ async function fetch30DayHistory(lat, lon) {
     const end = endDate.toISOString().split('T')[0];
 
     const url = `https://archive-api.open-meteo.com/v1/archive?latitude=${lat}&longitude=${lon}&start_date=${start}&end_date=${end}&daily=temperature_2m_max,temperature_2m_min&temperature_unit=${state.settings.tempUnit}&timezone=America%2FNew_York`;
-    const response = await fetch(url);
+    const response = await fetchWithTimeout(url);
     if (!response.ok) return [];
     const data = await response.json();
 
@@ -404,7 +415,7 @@ async function fetch30DayHistory(lat, lon) {
 async function fetchAQI(lat, lon) {
   try {
     const url = `https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${lat}&longitude=${lon}&current=us_aqi,pm10,pm2_5`;
-    const response = await fetch(url);
+    const response = await fetchWithTimeout(url);
     if (!response.ok) return null;
     return response.json();
   } catch {
@@ -420,7 +431,7 @@ async function fetchHistoricalWeather(lat, lon) {
     const dateStr = lastYear.toISOString().split('T')[0];
 
     const url = `https://archive-api.open-meteo.com/v1/archive?latitude=${lat}&longitude=${lon}&start_date=${dateStr}&end_date=${dateStr}&daily=temperature_2m_max,temperature_2m_min,precipitation_sum&temperature_unit=${state.settings.tempUnit}&timezone=America%2FNew_York`;
-    const response = await fetch(url);
+    const response = await fetchWithTimeout(url);
     if (!response.ok) return null;
     return response.json();
   } catch {
@@ -1002,6 +1013,8 @@ function renderOutfitView(city1, city2, theme) {
   `;
 }
 
+/* ============================ INSIGHTS HELPERS ======================== */
+
 function getMoonPhase() {
   const date = new Date();
   let year = date.getFullYear();
@@ -1026,7 +1039,7 @@ function getMoonPhase() {
     { name: 'Waxing Gibbous', emoji: '🌔' },
     { name: 'Full Moon', emoji: '🌕' },
     { name: 'Waning Gibbous', emoji: '🌖' },
-    { name: 'Last Quarter', emoji: '🌗' },
+    { name: 'Last Quarter', emoji: '🌓' },
     { name: 'Waning Crescent', emoji: '🌘' }
   ];
   return phases[b];
@@ -1112,6 +1125,65 @@ function getComparisonStats(data1, data2) {
     uv: uvDiff > 2 ? `UV index differs by ${uvDiff.toFixed(1)} points` : 'Similar UV exposure'
   };
 }
+
+/* =========================== BEST PLACE SCORE ========================= */
+
+function calculateBestPlace() {
+  const { city1, city2 } = state.weather;
+  if (!city1 || !city2) {
+    return {
+      winner: { key: 'city1', city: state.settings.city1.name, score: 0, reasons: [] },
+      loser: { key: 'city2', city: state.settings.city2.name, score: 0, reasons: [] }
+    };
+  }
+
+  function scoreCity(city) {
+    const t = city.current.temperature_2m;
+    const uv = city.current.uv_index || 0;
+    const h = city.current.relative_humidity_2m || 0;
+    const code = city.current.weather_code || 0;
+
+    let s = 100;
+    if (t < 32) s -= 20;
+    else if (t > 90) s -= 15;
+    else if (t >= 70 && t <= 80) s += 10;
+
+    if (h > 70) s -= 10;
+    else if (h < 30) s -= 5;
+
+    if (uv > 8) s -= 10;
+
+    if (code > 60 && code <= 67) s -= 15;
+    if (code > 67) s -= 25;
+
+    return Math.max(0, Math.min(200, s));
+  }
+
+  const s1 = scoreCity(city1);
+  const s2 = scoreCity(city2);
+
+  const winnerKey = s1 >= s2 ? 'city1' : 'city2';
+  const loserKey = winnerKey === 'city1' ? 'city2' : 'city1';
+  const winnerCity = state.settings[winnerKey].name;
+  const loserCity = state.settings[loserKey].name;
+
+  const reasons = [];
+  if (s1 !== s2) {
+    const w = state.weather[winnerKey];
+    const l = state.weather[loserKey];
+    if (w.current.temperature_2m < 85 && l.current.temperature_2m > 85) reasons.push('More comfortable temperature');
+    if (w.current.relative_humidity_2m < l.current.relative_humidity_2m) reasons.push('Less humidity');
+    if ((w.current.uv_index || 0) < (l.current.uv_index || 0)) reasons.push('Lower UV exposure');
+    if ((w.current.weather_code || 0) < (l.current.weather_code || 0)) reasons.push('Better weather conditions');
+  }
+
+  return {
+    winner: { key: winnerKey, city: winnerCity, score: s1 >= s2 ? s1 : s2, reasons },
+    loser: { key: loserKey, city: loserCity, score: s1 < s2 ? s1 : s2, reasons: [] }
+  };
+}
+
+/* ============================ INSIGHTS RENDER ========================= */
 
 function renderInsightsView(city1, city2, theme) {
   const advice1 = getWeatherAdvice(city1, state.aqi.city1);
@@ -1377,7 +1449,9 @@ async function loadWeather() {
       };
     }
 
-    render();
+    try { render(); } catch (e) {
+      console.error('Render while loading failed:', e);
+    }
 
     const [data1, data2, aqi1, aqi2, hist1, hist2, history1, history2] = await Promise.all([
       fetchWeather(state.settings.city1.lat, state.settings.city1.lon),
@@ -1407,7 +1481,13 @@ async function loadWeather() {
     state.error = String(error && error.message ? error.message : error);
   } finally {
     state.loading = false;
-    render();
+    try { render(); } catch (e) {
+      console.error('Render after load failed:', e);
+      const app = document.getElementById('app');
+      if (app) {
+        app.innerHTML = `<div style="padding:16px;color:#fca5a5;">UI failed to render. ${e}</div>`;
+      }
+    }
   }
 }
 
