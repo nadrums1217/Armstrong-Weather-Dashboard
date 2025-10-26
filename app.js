@@ -31,23 +31,50 @@ const THEMES = {
 
 class WeatherAnimator {
   constructor() {
+    // ensure canvas exists
     this.canvas = document.getElementById('weatherAnimation');
-    this.ctx = this.canvas.getContext('2d');
+    if (!this.canvas) {
+      this.canvas = document.createElement('canvas');
+      this.canvas.id = 'weatherAnimation';
+      this.canvas.className = 'fixed inset-0 pointer-events-none z-0';
+      document.body.appendChild(this.canvas);
+      const appRoot = document.getElementById('app');
+      if (appRoot) appRoot.classList.add('relative', 'z-10');
+    }
+
+    const ctx = this.canvas.getContext('2d');
+    if (!ctx) {
+      throw new Error('2D context not available');
+    }
+    this.ctx = ctx;
+
     this.particles = [];
+    this._raf = null;
+
     this.resize();
     window.addEventListener('resize', () => this.resize());
   }
-  
+
   resize() {
-    this.canvas.width = window.innerWidth;
-    this.canvas.height = window.innerHeight;
+    const dpr = window.devicePixelRatio || 1;
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    this.canvas.style.width = w + 'px';
+    this.canvas.style.height = h + 'px';
+    this.canvas.width = Math.floor(w * dpr);
+    this.canvas.height = Math.floor(h * dpr);
+    this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   }
-  
+
   clear() {
     this.particles = [];
     this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+    if (this._raf) {
+      cancelAnimationFrame(this._raf);
+      this._raf = null;
+    }
   }
-  
+
   createRain() {
     this.clear();
     for (let i = 0; i < 100; i++) {
@@ -60,30 +87,30 @@ class WeatherAnimator {
     }
     this.animateRain();
   }
-  
+
   animateRain() {
     this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
     this.ctx.strokeStyle = 'rgba(174, 194, 224, 0.5)';
     this.ctx.lineWidth = 2;
-    
+
     this.particles.forEach(p => {
       this.ctx.beginPath();
       this.ctx.moveTo(p.x, p.y);
       this.ctx.lineTo(p.x, p.y + p.length);
       this.ctx.stroke();
-      
+
       p.y += p.speed;
       if (p.y > this.canvas.height) {
         p.y = -p.length;
         p.x = Math.random() * this.canvas.width;
       }
     });
-    
+
     if (state.settings.animations) {
-      requestAnimationFrame(() => this.animateRain());
+      this._raf = requestAnimationFrame(() => this.animateRain());
     }
   }
-  
+
   createSnow() {
     this.clear();
     for (let i = 0; i < 50; i++) {
@@ -97,42 +124,42 @@ class WeatherAnimator {
     }
     this.animateSnow();
   }
-  
+
   animateSnow() {
     this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
     this.ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
-    
+
     this.particles.forEach(p => {
       this.ctx.beginPath();
       this.ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
       this.ctx.fill();
-      
+
       p.y += p.speed;
       p.x += Math.sin(p.y / 30) * p.wobble;
-      
+
       if (p.y > this.canvas.height) {
         p.y = -10;
         p.x = Math.random() * this.canvas.width;
       }
     });
-    
+
     if (state.settings.animations) {
-      requestAnimationFrame(() => this.animateSnow());
+      this._raf = requestAnimationFrame(() => this.animateSnow());
     }
   }
-  
+
   createSunny() {
     this.clear();
     this.animateSunny();
   }
-  
+
   animateSunny() {
     this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
-    
+
     const centerX = this.canvas.width - 100;
     const centerY = 100;
     const time = Date.now() / 1000;
-    
+
     for (let i = 0; i < 12; i++) {
       const angle = (i / 12) * Math.PI * 2 + time * 0.1;
       const gradient = this.ctx.createLinearGradient(
@@ -142,7 +169,7 @@ class WeatherAnimator {
       );
       gradient.addColorStop(0, 'rgba(255, 220, 100, 0.3)');
       gradient.addColorStop(1, 'transparent');
-      
+
       this.ctx.strokeStyle = gradient;
       this.ctx.lineWidth = 3;
       this.ctx.beginPath();
@@ -153,12 +180,12 @@ class WeatherAnimator {
       );
       this.ctx.stroke();
     }
-    
+
     if (state.settings.animations) {
-      requestAnimationFrame(() => this.animateSunny());
+      this._raf = requestAnimationFrame(() => this.animateSunny());
     }
   }
-  
+
   createCloudy() {
     this.clear();
     for (let i = 0; i < 5; i++) {
@@ -171,10 +198,10 @@ class WeatherAnimator {
     }
     this.animateCloudy();
   }
-  
+
   animateCloudy() {
     this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
-    
+
     this.particles.forEach(p => {
       this.ctx.fillStyle = 'rgba(200, 200, 200, 0.3)';
       this.ctx.beginPath();
@@ -182,15 +209,15 @@ class WeatherAnimator {
       this.ctx.arc(p.x + p.size * 0.6, p.y, p.size * 0.8, 0, Math.PI * 2);
       this.ctx.arc(p.x + p.size * 1.2, p.y, p.size * 0.9, 0, Math.PI * 2);
       this.ctx.fill();
-      
+
       p.x += p.speed;
       if (p.x > this.canvas.width + p.size * 2) {
         p.x = -p.size * 2;
       }
     });
-    
+
     if (state.settings.animations) {
-      requestAnimationFrame(() => this.animateCloudy());
+      this._raf = requestAnimationFrame(() => this.animateCloudy());
     }
   }
 }
@@ -203,12 +230,12 @@ function updateWeatherAnimation() {
     animator.clear();
     return;
   }
-  
+
   const weather = state.weather.city1 || state.weather.city2;
   if (!weather) return;
-  
+
   const code = weather.current.weather_code;
-  
+
   if (code === 0) {
     animator.createSunny();
   } else if (code <= 3) {
@@ -225,7 +252,7 @@ function updateWeatherAnimation() {
 async function fetchWeather(lat, lon) {
   const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m,uv_index,visibility&hourly=temperature_2m,precipitation_probability,weather_code,uv_index,wind_speed_10m&daily=weather_code,temperature_2m_max,temperature_2m_min,sunrise,sunset,precipitation_probability_max,wind_speed_10m_max,uv_index_max&temperature_unit=${state.settings.tempUnit}&wind_speed_unit=mph&timezone=America%2FNew_York&past_days=7`;
   const response = await fetch(url);
-  if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+  if (!response.ok) throw new Error(`HTTP error, status: ${response.status}`);
   return response.json();
 }
 
@@ -234,15 +261,15 @@ async function fetch30DayHistory(lat, lon) {
     const endDate = new Date();
     const startDate = new Date();
     startDate.setDate(startDate.getDate() - 30);
-    
+
     const start = startDate.toISOString().split('T')[0];
     const end = endDate.toISOString().split('T')[0];
-    
+
     const url = `https://archive-api.open-meteo.com/v1/archive?latitude=${lat}&longitude=${lon}&start_date=${start}&end_date=${end}&daily=temperature_2m_max,temperature_2m_min&temperature_unit=${state.settings.tempUnit}&timezone=America%2FNew_York`;
     const response = await fetch(url);
     if (!response.ok) return [];
     const data = await response.json();
-    
+
     return data.daily.time.map((date, i) => ({
       date,
       high: data.daily.temperature_2m_max[i],
@@ -270,7 +297,7 @@ async function fetchHistoricalWeather(lat, lon) {
     const lastYear = new Date(today);
     lastYear.setFullYear(lastYear.getFullYear() - 1);
     const dateStr = lastYear.toISOString().split('T')[0];
-    
+
     const url = `https://archive-api.open-meteo.com/v1/archive?latitude=${lat}&longitude=${lon}&start_date=${dateStr}&end_date=${dateStr}&daily=temperature_2m_max,temperature_2m_min,precipitation_sum&temperature_unit=${state.settings.tempUnit}&timezone=America%2FNew_York`;
     const response = await fetch(url);
     if (!response.ok) return null;
@@ -283,16 +310,16 @@ async function fetchHistoricalWeather(lat, lon) {
 async function loadWeather() {
   state.loading = true;
   state.error = null;
-  
+
   if (state.weather.city1 && state.weather.city2) {
     state.previousWeather = {
       city1: JSON.parse(JSON.stringify(state.weather.city1)),
       city2: JSON.parse(JSON.stringify(state.weather.city2))
     };
   }
-  
+
   render();
-  
+
   try {
     const [data1, data2, aqi1, aqi2, hist1, hist2, history1, history2] = await Promise.all([
       fetchWeather(state.settings.city1.lat, state.settings.city1.lon),
@@ -304,16 +331,16 @@ async function loadWeather() {
       fetch30DayHistory(state.settings.city1.lat, state.settings.city1.lon),
       fetch30DayHistory(state.settings.city2.lat, state.settings.city2.lon)
     ]);
-    
+
     state.weather = { city1: data1, city2: data2 };
     state.aqi = { city1: aqi1, city2: aqi2 };
     state.historical = { city1: hist1, city2: hist2 };
     state.history30Days = { city1: history1, city2: history2 };
     state.lastUpdate = new Date();
-    
+
     updateStreaks();
     updateWeatherAnimation();
-    
+
     if (state.previousWeather.city1) {
       checkWeatherChanges();
     }
@@ -321,7 +348,7 @@ async function loadWeather() {
     state.error = error.message;
     console.error('Error:', error);
   }
-  
+
   state.loading = false;
   render();
 }
@@ -330,14 +357,14 @@ function checkWeatherChanges() {
   ['city1', 'city2'].forEach(city => {
     const prev = state.previousWeather[city];
     const curr = state.weather[city];
-    
+
     if (!prev || !curr) return;
-    
+
     const tempChange = Math.abs(curr.current.temperature_2m - prev.current.temperature_2m);
     if (tempChange > 2) {
       triggerWeatherTransition();
     }
-    
+
     if (curr.current.weather_code !== prev.current.weather_code) {
       triggerWeatherTransition();
     }
@@ -346,7 +373,7 @@ function checkWeatherChanges() {
 
 function triggerWeatherTransition() {
   if (!state.settings.animations) return;
-  
+
   setTimeout(() => {
     const cards = document.querySelectorAll('.weather-card');
     cards.forEach(card => {
@@ -358,14 +385,14 @@ function triggerWeatherTransition() {
 
 function updateStreaks() {
   const today = new Date().toDateString();
-  
+
   ['city1', 'city2'].forEach(city => {
     const data = state.weather[city];
     if (!data) return;
-    
+
     const code = data.current.weather_code;
     const condition = code === 0 ? 'sunny' : code <= 67 ? 'rainy' : 'snowy';
-    
+
     if (!state.streaks[city].lastDate || state.streaks[city].lastDate !== today) {
       if (state.streaks[city].lastCondition === condition) {
         state.streaks[city].count = (state.streaks[city].count || 0) + 1;
@@ -376,7 +403,7 @@ function updateStreaks() {
       state.streaks[city].lastDate = today;
     }
   });
-  
+
   localStorage.setItem('weatherStreaks', JSON.stringify(state.streaks));
 }
 
@@ -385,14 +412,14 @@ function getMoonPhase() {
   let year = date.getFullYear();
   let month = date.getMonth() + 1;
   const day = date.getDate();
-  
+
   let c = 0, e = 0, jd = 0, b = 0;
-  
+
   if (month < 3) {
     year--;
     month += 12;
   }
-  
+
   c = 365.25 * year;
   e = 30.6 * (month + 1);
   jd = c + e + day - 694039.09;
@@ -400,9 +427,9 @@ function getMoonPhase() {
   b = parseInt(jd);
   jd -= b;
   b = Math.round(jd * 8);
-  
+
   if (b >= 8) b = 0;
-  
+
   const phases = [
     { name: 'New Moon', emoji: '🌑' },
     { name: 'Waxing Crescent', emoji: '🌒' },
@@ -410,69 +437,69 @@ function getMoonPhase() {
     { name: 'Waxing Gibbous', emoji: '🌔' },
     { name: 'Full Moon', emoji: '🌕' },
     { name: 'Waning Gibbous', emoji: '🌖' },
-    { name: 'Last Quarter', emoji: '🌗' },
+    { name: 'Last Quarter', emoji: '🌓' },
     { name: 'Waning Crescent', emoji: '🌘' }
   ];
-  
+
   return phases[b];
 }
 
 function calculateBestPlace() {
   const c1 = state.weather.city1;
   const c2 = state.weather.city2;
-  
+
   let score1 = 0, score2 = 0;
   const reasons1 = [], reasons2 = [];
-  
+
   const temp1 = c1.current.temperature_2m;
   const temp2 = c2.current.temperature_2m;
-  
+
   const idealTemp = 72;
   const tempScore1 = 100 - Math.abs(temp1 - idealTemp) * 2;
   const tempScore2 = 100 - Math.abs(temp2 - idealTemp) * 2;
   score1 += Math.max(0, tempScore1);
   score2 += Math.max(0, tempScore2);
-  
+
   if (tempScore1 > tempScore2) reasons1.push(`Better temperature (${Math.round(temp1)}°F)`);
   else if (tempScore2 > tempScore1) reasons2.push(`Better temperature (${Math.round(temp2)}°F)`);
-  
+
   if (c1.current.weather_code === 0) { score1 += 50; reasons1.push('Clear skies'); }
   if (c2.current.weather_code === 0) { score2 += 50; reasons2.push('Clear skies'); }
-  
+
   if (c1.current.weather_code > 60) { score1 -= 30; reasons2.push('No precipitation'); }
   if (c2.current.weather_code > 60) { score2 -= 30; reasons1.push('No precipitation'); }
-  
+
   const humidity1 = c1.current.relative_humidity_2m;
   const humidity2 = c2.current.relative_humidity_2m;
   const humidityScore1 = 50 - Math.abs(humidity1 - 50);
   const humidityScore2 = 50 - Math.abs(humidity2 - 50);
   score1 += humidityScore1;
   score2 += humidityScore2;
-  
+
   if (humidityScore1 > humidityScore2 + 10) reasons1.push('Comfortable humidity');
   else if (humidityScore2 > humidityScore1 + 10) reasons2.push('Comfortable humidity');
-  
+
   const uv1 = c1.current.uv_index || 0;
   const uv2 = c2.current.uv_index || 0;
   if (uv1 < 3) { score1 += 20; reasons1.push('Low UV exposure'); }
   if (uv2 < 3) { score2 += 20; reasons2.push('Low UV exposure'); }
-  
+
   const aqi1 = state.aqi.city1?.current?.us_aqi || 50;
   const aqi2 = state.aqi.city2?.current?.us_aqi || 50;
   score1 += Math.max(0, (100 - aqi1) / 2);
   score2 += Math.max(0, (100 - aqi2) / 2);
-  
+
   if (aqi1 < 50) reasons1.push('Excellent air quality');
   if (aqi2 < 50) reasons2.push('Excellent air quality');
-  
-  const winner = score1 > score2 ? 
+
+  const winner = score1 > score2 ?
     { city: state.settings.city1.name, score: Math.round(score1), reasons: reasons1, key: 'city1' } :
     { city: state.settings.city2.name, score: Math.round(score2), reasons: reasons2, key: 'city2' };
-  
-  const loser = score1 > score2 ? 
+
+  const loser = score1 > score2 ?
     { city: state.settings.city2.name, score: Math.round(score2), key: 'city2' } :
     { city: state.settings.city1.name, score: Math.round(score1), key: 'city1' };
-  
+
   return { winner, loser };
 }
 
@@ -480,22 +507,22 @@ function getOutfitRecommendation(data) {
   const temp = data.current.temperature_2m;
   const code = data.current.weather_code;
   const wind = data.current.wind_speed_10m;
-  
+
   const outfit = [];
-  
+
   if (temp < 30) outfit.push('🧥 Heavy winter coat', '🧣 Scarf and gloves', '🥾 Insulated boots');
   else if (temp < 50) outfit.push('🧥 Jacket or coat', '👖 Long pants', '👟 Closed-toe shoes');
   else if (temp < 70) outfit.push('👕 Long sleeve shirt', '👖 Pants or jeans');
   else if (temp < 85) outfit.push('👕 T-shirt', '🩳 Shorts or light pants');
   else outfit.push('👕 Light breathable clothing', '🩳 Shorts', '🧢 Hat for sun protection');
-  
+
   if (code > 60 && code <= 67) outfit.push('☔ Umbrella', '🥾 Waterproof shoes');
   else if (code > 67) outfit.push('🧤 Waterproof gloves', '☔ Rain gear');
-  
+
   if (wind > 15) outfit.push('🧥 Windbreaker');
-  
+
   if (data.current.uv_index > 6) outfit.push('🕶️ Sunglasses', '🧴 Sunscreen');
-  
+
   return outfit.slice(0, 5);
 }
 
@@ -514,23 +541,23 @@ function getWeatherAdvice(data, aqi) {
   const weatherCode = data.current.weather_code;
   const uvIndex = data.current.uv_index || 0;
   const aqiLevel = aqi?.current?.us_aqi || 0;
-  
+
   const advice = [];
-  
+
   if (weatherCode === 0) advice.push('☀️ Beautiful day! Perfect for outdoor activities');
-  else if (weatherCode <= 3) advice.push('⛅ Partly cloudy - great weather for a walk');
-  else if (weatherCode <= 67) advice.push('☔ Rain expected - bring an umbrella');
-  else if (weatherCode <= 77) advice.push('🌨️ Snow expected - dress warmly');
-  
-  if (temp < 32) advice.push('🥶 Freezing temps - layer up and protect extremities');
-  else if (temp < 50) advice.push('🧥 Cool weather - jacket recommended');
-  else if (temp > 85) advice.push('🌡️ Hot day - stay hydrated and seek shade');
-  
-  if (uvIndex > 7) advice.push('🕶️ High UV - wear sunscreen and sunglasses');
-  if (aqiLevel > 100) advice.push('😷 Poor air quality - consider limiting outdoor activity');
-  
+  else if (weatherCode <= 3) advice.push('⛅ Partly cloudy, great weather for a walk');
+  else if (weatherCode <= 67) advice.push('☔ Rain expected, bring an umbrella');
+  else if (weatherCode <= 77) advice.push('🌨️ Snow expected, dress warmly');
+
+  if (temp < 32) advice.push('🥶 Freezing temps, layer up and protect extremities');
+  else if (temp < 50) advice.push('🧥 Cool weather, jacket recommended');
+  else if (temp > 85) advice.push('🌡️ Hot day, stay hydrated and seek shade');
+
+  if (uvIndex > 7) advice.push('🕶️ High UV, wear sunscreen and sunglasses');
+  if (aqiLevel > 100) advice.push('😷 Poor air quality, consider limiting outdoor activity');
+
   if (advice.length === 0) advice.push('👍 Good weather for most activities');
-  
+
   return advice;
 }
 
@@ -540,16 +567,16 @@ function getComparisonStats(data1, data2) {
   const tempDiff = Math.abs(temp1 - temp2);
   const warmer = temp1 > temp2 ? state.settings.city1.name : state.settings.city2.name;
   const colder = temp1 < temp2 ? state.settings.city1.name : state.settings.city2.name;
-  
+
   const humidity1 = data1.current.relative_humidity_2m;
   const humidity2 = data2.current.relative_humidity_2m;
   const humidityDiff = Math.abs(humidity1 - humidity2);
   const moreHumid = humidity1 > humidity2 ? state.settings.city1.name : state.settings.city2.name;
-  
+
   const uv1 = data1.current.uv_index || 0;
   const uv2 = data2.current.uv_index || 0;
   const uvDiff = Math.abs(uv1 - uv2);
-  
+
   return {
     temp: `${warmer} is ${tempDiff.toFixed(1)}°F warmer than ${colder}`,
     humidity: `${moreHumid} is ${humidityDiff}% more humid`,
@@ -560,16 +587,16 @@ function getComparisonStats(data1, data2) {
 async function shareWeather() {
   const shareDiv = document.getElementById('shareCapture');
   if (!shareDiv) return;
-  
+
   try {
     const canvas = await html2canvas(shareDiv, {
       backgroundColor: '#000',
       scale: 2
     });
-    
+
     canvas.toBlob(async (blob) => {
       const file = new File([blob], 'armstrong-weather.png', { type: 'image/png' });
-      
+
       if (navigator.share && navigator.canShare({ files: [file] })) {
         await navigator.share({
           files: [file],
@@ -630,7 +657,7 @@ function renderCharts() {
     const theme = THEMES[state.settings.theme];
     const gridColor = state.settings.theme === 'arctic' ? '#ccc' : '#333';
     const textColor = state.settings.theme === 'arctic' ? '#111' : '#fff';
-    
+
     createChart('tempChart', 'line', {
       labels: hourlyData.map(d => d.time),
       datasets: [
@@ -640,7 +667,7 @@ function renderCharts() {
     }, {
       responsive: true,
       maintainAspectRatio: false,
-      plugins: { legend: { labels: { color: textColor } } },
+      plugins: { legend: { labels: { color: textColor} } },
       scales: {
         x: { ticks: { color: textColor }, grid: { color: gridColor } },
         y: { ticks: { color: textColor }, grid: { color: gridColor } }
@@ -656,7 +683,7 @@ function renderCharts() {
     }, {
       responsive: true,
       maintainAspectRatio: false,
-      plugins: { legend: { labels: { color: textColor } } },
+      plugins: { legend: { labels: { color: textColor} } },
       scales: {
         x: { ticks: { color: textColor }, grid: { color: gridColor } },
         y: { ticks: { color: textColor }, grid: { color: gridColor } }
@@ -674,7 +701,7 @@ function renderCharts() {
     }, {
       responsive: true,
       maintainAspectRatio: false,
-      plugins: { legend: { labels: { color: textColor } } },
+      plugins: { legend: { labels: { color: textColor} } },
       scales: {
         x: { ticks: { color: textColor }, grid: { color: gridColor } },
         y: { ticks: { color: textColor }, grid: { color: gridColor } }
@@ -693,7 +720,7 @@ function renderCharts() {
       }, {
         responsive: true,
         maintainAspectRatio: false,
-        plugins: { legend: { labels: { color: textColor } } },
+        plugins: { legend: { labels: { color: textColor} } },
         scales: {
           x: { ticks: { color: textColor, maxTicksLimit: 10 }, grid: { color: gridColor } },
           y: { ticks: { color: textColor }, grid: { color: gridColor } }
@@ -708,12 +735,12 @@ function prepare24HourData() {
   const currentHour = now.getHours();
   const hourly1 = state.weather.city1.hourly;
   const hourly2 = state.weather.city2.hourly;
-  
+
   return Array.from({ length: 24 }, (_, i) => {
     const index = currentHour + i;
     const time = new Date(now);
     time.setHours(currentHour + i, 0, 0, 0);
-    
+
     return {
       time: time.toLocaleTimeString('en-US', { hour: 'numeric', hour12: true }),
       temp1: Math.round(hourly1.temperature_2m?.[index] || 0),
@@ -727,9 +754,9 @@ function prepare24HourData() {
 function prepare7DayData() {
   const daily1 = state.weather.city1.daily;
   const daily2 = state.weather.city2.daily;
-  
+
   const startIndex = 7;
-  
+
   return daily1.time.slice(startIndex, startIndex + 7).map((date, i) => ({
     date: new Date(date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
     high1: Math.round(daily1.temperature_2m_max?.[startIndex + i] || 0),
@@ -743,7 +770,7 @@ function render() {
   const theme = THEMES[state.settings.theme];
   document.body.className = theme.bg;
   const app = document.getElementById('app');
-  
+
   if (state.loading) {
     app.innerHTML = `
       <div class="min-h-screen flex items-center justify-center ${theme.bg}">
@@ -865,7 +892,7 @@ function render() {
 function renderOutfitView(city1, city2, theme) {
   const outfit1 = getOutfitRecommendation(city1);
   const outfit2 = getOutfitRecommendation(city2);
-  
+
   return `
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
       <div class="${theme.card} ${theme.border} border rounded-2xl p-6 md:p-8 slide-in-left">
@@ -879,7 +906,7 @@ function renderOutfitView(city1, city2, theme) {
           `).join('')}
         </div>
       </div>
-      
+
       <div class="${theme.card} ${theme.border} border rounded-2xl p-6 md:p-8 slide-in-right">
         <h2 class="text-2xl font-light mb-6 ${theme.text}">${state.settings.city2.name}</h2>
         <div class="${theme.text} font-medium mb-4">👔 What to Wear Today</div>
@@ -900,7 +927,7 @@ function renderInsightsView(city1, city2, theme) {
   const advice2 = getWeatherAdvice(city2, state.aqi.city2);
   const streak1 = state.streaks.city1;
   const streak2 = state.streaks.city2;
-  
+
   return `
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
       ${renderInsightCard(city1, state.settings.city1.name, advice1, streak1, state.historical.city1, theme, 'city1', 'slide-in-left')}
@@ -912,7 +939,7 @@ function renderInsightsView(city1, city2, theme) {
 function renderInsightCard(data, cityName, advice, streak, historical, theme, cityKey, animationClass) {
   const aqiData = state.aqi[cityKey];
   const aqiInfo = getAQILevel(aqiData?.current?.us_aqi);
-  
+
   let historicalHTML = '';
   if (historical && historical.daily) {
     const lastYearHigh = historical.daily.temperature_2m_max[0];
@@ -930,18 +957,18 @@ function renderInsightCard(data, cityName, advice, streak, historical, theme, ci
       </div>
     `;
   }
-  
+
   return `
     <div class="${theme.card} ${theme.border} border rounded-2xl p-6 mobile-p-4 ${animationClass}">
       <h2 class="text-2xl font-light mb-6 ${theme.text} fade-in">${cityName}</h2>
-      
+
       <div class="${theme.card} ${theme.border} border rounded-xl p-4 mb-4 fade-in" style="animation-delay: 0.1s;">
         <div class="${theme.text} font-medium mb-2">💡 Weather Advice</div>
         <div class="space-y-2">
           ${advice.map((a, i) => `<div class="text-sm ${theme.text} opacity-80 fade-in" style="animation-delay: ${0.2 + i * 0.1}s;">• ${a}</div>`).join('')}
         </div>
       </div>
-      
+
       ${aqiData ? `
         <div class="${theme.card} ${theme.border} border rounded-xl p-4 mb-4 fade-in" style="animation-delay: 0.3s;">
           <div class="${theme.text} font-medium mb-2">🌫️ Air Quality Index</div>
@@ -958,7 +985,7 @@ function renderInsightCard(data, cityName, advice, streak, historical, theme, ci
           </div>
         </div>
       ` : ''}
-      
+
       ${streak.count ? `
         <div class="${theme.card} ${theme.border} border rounded-xl p-4 mb-4 fade-in" style="animation-delay: 0.4s;">
           <div class="${theme.text} font-medium mb-2">🔥 Weather Streak</div>
@@ -967,7 +994,7 @@ function renderInsightCard(data, cityName, advice, streak, historical, theme, ci
           </div>
         </div>
       ` : ''}
-      
+
       ${historicalHTML}
     </div>
   `;
@@ -986,15 +1013,15 @@ function renderWeatherCard(data, cityName, theme, isWinner, animationClass) {
   const current = data.current;
   const daily = data.daily;
   const uvInfo = getUVLevel(current.uv_index || 0);
-  
-  const tempClass = state.previousWeather.city1 && 
+
+  const tempClass = state.previousWeather.city1 &&
     Math.abs(current.temperature_2m - (state.previousWeather[cityName.includes('Oneonta') ? 'city1' : 'city2']?.current?.temperature_2m || current.temperature_2m)) > 2
     ? 'temp-change' : '';
 
   return `
     <div class="flex-1 ${theme.card} ${theme.border} border rounded-2xl p-6 md:p-8 mobile-p-4 ${isWinner ? 'winner-glow' : ''} weather-card ${animationClass}">
       <h2 class="text-xl md:text-2xl font-light mb-6 md:mb-8 ${theme.text} fade-in">${cityName} ${isWinner ? '🏆' : ''}</h2>
-      
+
       <div class="mb-6 md:mb-8">
         <div class="flex items-center gap-4 mb-6 fade-in">
           <span class="text-5xl md:text-7xl weather-icon">${getWeatherIcon(current.weather_code)}</span>
@@ -1064,17 +1091,17 @@ function renderChartsView(theme) {
         <h3 class="text-lg md:text-xl font-light mb-4 ${theme.text}">24-Hour Temperature Forecast</h3>
         <div style="height: 250px;"><canvas id="tempChart"></canvas></div>
       </div>
-      
+
       <div class="${theme.card} ${theme.border} border rounded-2xl p-4 md:p-6 fade-in" style="animation-delay: 0.1s;">
         <h3 class="text-lg md:text-xl font-light mb-4 ${theme.text}">24-Hour UV Index</h3>
         <div style="height: 250px;"><canvas id="uvChart"></canvas></div>
       </div>
-      
+
       <div class="${theme.card} ${theme.border} border rounded-2xl p-4 md:p-6 fade-in" style="animation-delay: 0.2s;">
         <h3 class="text-lg md:text-xl font-light mb-4 ${theme.text}">7-Day Temperature Range</h3>
         <div style="height: 250px;"><canvas id="weeklyChart"></canvas></div>
       </div>
-      
+
       ${state.history30Days.city1.length > 0 ? `
         <div class="${theme.card} ${theme.border} border rounded-2xl p-4 md:p-6 fade-in" style="animation-delay: 0.3s;">
           <h3 class="text-lg md:text-xl font-light mb-4 ${theme.text}">📅 30-Day Temperature History</h3>
@@ -1124,7 +1151,7 @@ function renderSettings(theme) {
           <div>
             <label class="block ${theme.text} mb-2">Theme</label>
             <select id="theme" class="w-full ${theme.card} ${theme.border} border rounded-xl px-4 py-3 ${theme.text}">
-              ${Object.entries(THEMES).map(([key, t]) => 
+              ${Object.entries(THEMES).map(([key, t]) =>
                 `<option value="${key}" ${state.settings.theme === key ? 'selected' : ''}>${t.name}</option>`
               ).join('')}
             </select>
@@ -1169,8 +1196,10 @@ function saveSettings() {
   loadWeather();
 }
 
-loadWeather();
-
-if (state.settings.autoRefresh) {
-  setInterval(loadWeather, 3600000);
-}
+// safer boot so DOM exists before we start
+window.addEventListener('DOMContentLoaded', () => {
+  loadWeather();
+  if (state.settings.autoRefresh) {
+    setInterval(loadWeather, 3600000);
+  }
+});
