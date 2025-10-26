@@ -75,6 +75,22 @@ function formatYMDToLabel(s) {
   return `${months[m - 1]} ${d}`;
 }
 
+/* ---------- New full date label helpers ---------- */
+
+function ordinal(n) {
+  const s = ['th','st','nd','rd'], v = n % 100;
+  return s[(v - 20) % 10] || s[v] || s[0];
+}
+
+function formatFullDayDate(ymd) {
+  if (!ymd) return '';
+  const [y, m, d] = ymd.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d, 12, 0, 0));
+  const weekday = new Intl.DateTimeFormat('en-US', { weekday: 'long', timeZone: 'America/New_York' }).format(dt);
+  const month = new Intl.DateTimeFormat('en-US', { month: 'long', timeZone: 'America/New_York' }).format(dt);
+  return `${weekday}, ${month} ${d}${ordinal(d)}`;
+}
+
 /* ------------------------------- Animator ------------------------------ */
 
 class WeatherAnimator {
@@ -301,26 +317,20 @@ function updateWeatherAnimation() {
 /* ----------------------------- Data fetchers --------------------------- */
 
 async function fetchWeather(lat, lon) {
-  const url =
-    `https://api.open-meteo.com/v1/forecast` +
+  const url = `https://api.open-meteo.com/v1/forecast` +
     `?latitude=${lat}&longitude=${lon}` +
-    // pick only valid "current" variables
     `&current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m,uv_index,visibility` +
-    // do NOT include "time" here
     `&hourly=temperature_2m,precipitation_probability,weather_code,uv_index,wind_speed_10m` +
-    // do NOT include "time" here
     `&daily=weather_code,temperature_2m_max,temperature_2m_min,sunrise,sunset,precipitation_probability_max,wind_speed_10m_max,uv_index_max` +
     `&forecast_days=7` +
     `&temperature_unit=${state.settings.tempUnit}` +
     `&wind_speed_unit=mph` +
     `&timezone=America%2FNew_York` +
     `&past_days=0`;
-
   const response = await fetch(url);
   if (!response.ok) throw new Error(`HTTP error, status: ${response.status}`);
   return response.json();
 }
-
 
 async function fetch30DayHistory(lat, lon) {
   try {
@@ -456,7 +466,6 @@ async function shareWeather() {
 
 async function loadWeather() {
   try {
-    // ensure #app exists
     if (!document.getElementById('app')) {
       const a = document.createElement('div');
       a.id = 'app';
@@ -564,7 +573,6 @@ function getMoonPhase() {
   const day = date.getDate();
   let c = 0, e = 0, jd = 0, b = 0;
 
-  // original stable version
   if (month < 3) {
     year--;
     month += 12;
@@ -654,6 +662,7 @@ function getOutfitRecommendation(data) {
   const temp = data.current.temperature_2m;
   const code = data.current.weather_code;
   const wind = data.current.wind_speed_10m;
+
   const outfit = [];
 
   if (temp < 30) outfit.push('🧥 Heavy winter coat', '🧣 Scarf and gloves', '🥾 Insulated boots');
@@ -666,6 +675,7 @@ function getOutfitRecommendation(data) {
   else if (code > 67) outfit.push('🧤 Waterproof gloves', '☔ Rain gear');
 
   if (wind > 15) outfit.push('🧥 Windbreaker');
+
   if (data.current.uv_index > 6) outfit.push('🕶️ Sunglasses', '🧴 Sunscreen');
 
   return outfit.slice(0, 5);
@@ -688,6 +698,7 @@ function getWeatherAdvice(data, aqi) {
   const aqiLevel = aqi?.current?.us_aqi || 0;
 
   const advice = [];
+
   if (weatherCode === 0) advice.push('☀️ Beautiful day. Perfect for outdoor activities');
   else if (weatherCode <= 3) advice.push('⛅ Partly cloudy, great weather for a walk');
   else if (weatherCode <= 67) advice.push('☔ Rain expected, bring an umbrella');
@@ -701,6 +712,7 @@ function getWeatherAdvice(data, aqi) {
   if (aqiLevel > 100) advice.push('😷 Poor air quality, consider limiting outdoor activity');
 
   if (advice.length === 0) advice.push('👍 Good weather for most activities');
+
   return advice;
 }
 
@@ -735,7 +747,6 @@ function createChart(canvasId, type, data, options) {
   const ctx = canvas.getContext && canvas.getContext('2d');
   if (!ctx) return;
   if (typeof Chart === 'undefined') {
-    // show a small note once
     const holder = canvas.parentElement;
     if (holder && !holder.querySelector('.chart-warning')) {
       const note = document.createElement('div');
@@ -750,6 +761,7 @@ function createChart(canvasId, type, data, options) {
 }
 
 function prepare24HourData() {
+  if (!state.weather.city1 || !state.weather.city2) return [];
   const hourly1 = state.weather.city1.hourly;
   const hourly2 = state.weather.city2.hourly;
 
@@ -781,6 +793,7 @@ function prepare7DayData() {
 
   return daily1.time.slice(s, s + 7).map((date, i) => ({
     date: formatYMDToLabel(date),
+    fullDate: formatFullDayDate(date),
     high1: Math.round(daily1.temperature_2m_max?.[s + i] ?? 0),
     low1: Math.round(daily1.temperature_2m_min?.[s + i] ?? 0),
     high2: Math.round(daily2.temperature_2m_max?.[s + i] ?? 0),
@@ -1035,7 +1048,7 @@ function renderWeatherCard(data, cityName, theme, isWinner, animationClass) {
   return `
     <div class="flex-1 ${theme.card} ${theme.border} border rounded-2xl p-6 md:p-8 mobile-p-4 ${isWinner ? 'winner-glow' : ''} weather-card ${animationClass}">
       <h2 class="text-xl md:text-2xl font-light mb-6 md:mb-8 ${theme.text} fade-in">${cityName} ${isWinner ? '🏆' : ''}</h2>
-
+      
       <div class="mb-6 md:mb-8">
         <div class="flex items-center gap-4 mb-6 fade-in">
           <span class="text-5xl md:text-7xl weather-icon">${getWeatherIcon(current.weather_code)}</span>
@@ -1056,7 +1069,7 @@ function renderWeatherCard(data, cityName, theme, isWinner, animationClass) {
           </div>
           <div class="${theme.card} ${theme.border} border rounded-xl p-3 md:p-4 weather-metric fade-in" style="animation-delay: 0.3s;">
             <div class="${theme.text} opacity-60 text-xs md:text-sm mb-1 md:mb-2">☀️ UV Index</div>
-            <div class="text-xl md:text-2xl ${theme.text} number-roll">${Math.round(current.uv_index || 0)} <span class="${'text-xs md:text-sm ' + uvInfo.color}">${uvInfo.level}</span></div>
+            <div class="text-xl md:text-2xl ${theme.text} number-roll">${Math.round(current.uv_index || 0)} <span class="text-xs md:text-sm ${uvInfo.color}">${uvInfo.level}</span></div>
           </div>
           <div class="${theme.card} ${theme.border} border rounded-xl p-3 md:p-4 weather-metric fade-in" style="animation-delay: 0.4s;">
             <div class="${theme.text} opacity-60 text-xs md:text-sm mb-1 md:mb-2">👁️ Visibility</div>
@@ -1081,7 +1094,7 @@ function renderWeatherCard(data, cityName, theme, isWinner, animationClass) {
             const dayUV = getUVLevel(daily.uv_index_max[idx] || 0);
             return `
               <div class="flex items-center justify-between ${theme.card} ${theme.border} border rounded-xl p-2 md:p-3 weather-metric fade-in" style="animation-delay: ${0.8 + i * 0.1}s;">
-                <span class="${theme.text} w-24 md:w-32 text-xs md:text-sm">${formatYMDToLabel(date)}</span>
+                <span class="${theme.text} w-48 md:w-64 text-xs md:text-sm">${formatFullDayDate(date)}</span>
                 <span class="text-xl md:text-2xl weather-icon">${getWeatherIcon(daily.weather_code[idx])}</span>
                 <div class="flex gap-2 md:gap-4 items-center text-xs md:text-sm">
                   <span class="${theme.text} opacity-60">💧 ${daily.precipitation_probability_max[idx]}%</span>
@@ -1101,7 +1114,7 @@ function renderWeatherCard(data, cityName, theme, isWinner, animationClass) {
 function renderOutfitView(city1, city2, theme) {
   const outfit1 = getOutfitRecommendation(city1);
   const outfit2 = getOutfitRecommendation(city2);
-
+  
   return `
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
       <div class="${theme.card} ${theme.border} border rounded-2xl p-6 md:p-8 slide-in-left">
@@ -1115,7 +1128,7 @@ function renderOutfitView(city1, city2, theme) {
           `).join('')}
         </div>
       </div>
-
+      
       <div class="${theme.card} ${theme.border} border rounded-2xl p-6 md:p-8 slide-in-right">
         <h2 class="text-2xl font-light mb-6 ${theme.text}">${state.settings.city2.name}</h2>
         <div class="${theme.text} font-medium mb-4">👔 What to Wear Today</div>
@@ -1134,7 +1147,7 @@ function renderOutfitView(city1, city2, theme) {
 function renderInsightCard(data, cityName, advice, streak, historical, theme, cityKey, animationClass) {
   const aqiData = state.aqi[cityKey];
   const aqiInfo = getAQILevel(aqiData?.current?.us_aqi);
-
+  
   let historicalHTML = '';
   if (historical && historical.daily) {
     const daily = data.daily;
@@ -1156,18 +1169,18 @@ function renderInsightCard(data, cityName, advice, streak, historical, theme, ci
       </div>
     `;
   }
-
+  
   return `
     <div class="${theme.card} ${theme.border} border rounded-2xl p-6 mobile-p-4 ${animationClass}">
       <h2 class="text-2xl font-light mb-6 ${theme.text} fade-in">${cityName}</h2>
-
+      
       <div class="${theme.card} ${theme.border} border rounded-xl p-4 mb-4 fade-in" style="animation-delay: 0.1s;">
         <div class="${theme.text} font-medium mb-2">💡 Weather Advice</div>
         <div class="space-y-2">
           ${advice.map((a, i) => `<div class="text-sm ${theme.text} opacity-80 fade-in" style="animation-delay: ${0.2 + i * 0.1}s;">• ${a}</div>`).join('')}
         </div>
       </div>
-
+      
       ${aqiData ? `
         <div class="${theme.card} ${theme.border} border rounded-xl p-4 mb-4 fade-in" style="animation-delay: 0.3s;">
           <div class="${theme.text} font-medium mb-2">🌫️ Air Quality Index</div>
@@ -1204,7 +1217,7 @@ function renderInsightsView(city1, city2, theme) {
   const advice2 = getWeatherAdvice(city2, state.aqi.city2);
   const streak1 = state.streaks.city1;
   const streak2 = state.streaks.city2;
-
+  
   return `
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
       ${renderInsightCard(city1, state.settings.city1.name, advice1, streak1, state.historical.city1, theme, 'city1', 'slide-in-left')}
@@ -1220,17 +1233,17 @@ function renderChartsView(theme) {
         <h3 class="text-lg md:text-xl font-light mb-4 ${theme.text}">24-Hour Temperature Forecast</h3>
         <div style="height: 250px;"><canvas id="tempChart"></canvas></div>
       </div>
-
+      
       <div class="${theme.card} ${theme.border} border rounded-2xl p-4 md:p-6 fade-in" style="animation-delay: 0.1s;">
         <h3 class="text-lg md:text-xl font-light mb-4 ${theme.text}">24-Hour UV Index</h3>
         <div style="height: 250px;"><canvas id="uvChart"></canvas></div>
       </div>
-
+      
       <div class="${theme.card} ${theme.border} border rounded-2xl p-4 md:p-6 fade-in" style="animation-delay: 0.2s;">
         <h3 class="text-lg md:text-xl font-light mb-4 ${theme.text}">7-Day Temperature Range</h3>
         <div style="height: 250px;"><canvas id="weeklyChart"></canvas></div>
       </div>
-
+      
       ${state.history30Days.city1.length > 0 ? `
         <div class="${theme.card} ${theme.border} border rounded-2xl p-4 md:p-6 fade-in" style="animation-delay: 0.3s;">
           <h3 class="text-lg md:text-xl font-light mb-4 ${theme.text}">📅 30-Day Temperature History</h3>
@@ -1280,7 +1293,7 @@ function renderSettings(theme) {
           <div>
             <label class="block ${theme.text} mb-2">Theme</label>
             <select id="theme" class="w-full ${theme.card} ${theme.border} border rounded-xl px-4 py-3 ${theme.text}">
-              ${Object.entries(THEMES).map(([key, t]) =>
+              ${Object.entries(THEMES).map(([key, t]) => 
                 `<option value="${key}" ${state.settings.theme === key ? 'selected' : ''}>${t.name}</option>`
               ).join('')}
             </select>
