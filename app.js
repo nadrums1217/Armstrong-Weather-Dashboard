@@ -47,6 +47,15 @@ function todayYMD_NY() {
   return `${y}-${m}-${d}`;
 }
 
+/* Find index for today. If today is missing, pick the next future date. */
+function findStartIdxTodayOrNext(dates) {
+  const today = todayYMD_NY();
+  let idx = dates.findIndex(d => d === today);
+  if (idx >= 0) return idx;
+  idx = dates.findIndex(d => d > today);
+  return idx >= 0 ? idx : 0;
+}
+
 /* ------------------------------- Animator ------------------------------ */
 
 class WeatherAnimator {
@@ -325,6 +334,101 @@ async function fetchHistoricalWeather(lat, lon) {
   }
 }
 
+/* ------------------------------ Share utils ---------------------------- */
+
+function loadHtml2Canvas() {
+  return new Promise((resolve, reject) => {
+    if (window.html2canvas) return resolve();
+    const s = document.createElement('script');
+    s.src = 'https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js';
+    s.async = true;
+    s.onload = () => resolve();
+    s.onerror = () => reject(new Error('Failed to load html2canvas'));
+    document.head.appendChild(s);
+  });
+}
+
+async function shareWeather() {
+  const shareDiv = document.getElementById('shareCapture');
+  if (!shareDiv) return;
+
+  try {
+    await loadHtml2Canvas();
+
+    const canvas = await html2canvas(shareDiv, {
+      backgroundColor: '#000',
+      scale: 2,
+      useCORS: true
+    });
+
+    const fileName = 'armstrong-weather.png';
+
+    const downloadPNG = () => {
+      const url = canvas.toDataURL('image/png');
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = fileName;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    };
+
+    if (navigator.canShare || navigator.share) {
+      canvas.toBlob(async blob => {
+        if (!blob) {
+          downloadPNG();
+          return;
+        }
+
+        let fileObj;
+        try {
+          fileObj = new File([blob], fileName, { type: 'image/png' });
+        } catch {
+          fileObj = blob;
+        }
+
+        if (navigator.canShare && navigator.canShare({ files: [fileObj] })) {
+          try {
+            await navigator.share({
+              files: [fileObj],
+              title: 'Armstrong Weather Dashboard',
+              text: `Weather comparison, ${state.settings.city1.name} vs ${state.settings.city2.name}`
+            });
+            return;
+          } catch {
+            downloadPNG();
+            return;
+          }
+        }
+
+        const dataUrl = canvas.toDataURL('image/png');
+        try {
+          await navigator.share({
+            title: 'Armstrong Weather Dashboard',
+            text: `Weather comparison, ${state.settings.city1.name} vs ${state.settings.city2.name}`,
+            url: dataUrl
+          });
+        } catch {
+          downloadPNG();
+        }
+      }, 'image/png');
+    } else {
+      downloadPNG();
+    }
+  } catch (error) {
+    console.error('Share failed:', error);
+    alert('Sharing is not available, a PNG will be downloaded instead.');
+    try {
+      const canvas = await html2canvas(shareDiv, { backgroundColor: '#000', scale: 2, useCORS: true });
+      const url = canvas.toDataURL('image/png');
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'armstrong-weather.png';
+      a.click();
+    } catch {}
+  }
+}
+
 /* --------------------------------- Load -------------------------------- */
 
 async function loadWeather() {
@@ -539,7 +643,7 @@ function getAQILevel(aqi) {
   if (aqi <= 100) return { level: 'Moderate', color: 'text-yellow-400', desc: 'Acceptable for most people' };
   if (aqi <= 150) return { level: 'Unhealthy for Sensitive', color: 'text-orange-400', desc: 'Sensitive groups may be affected' };
   if (aqi <= 200) return { level: 'Unhealthy', color: 'text-red-400', desc: 'Everyone may begin to feel effects' };
-  if (aqi <= 300) return { level: 'Very Unhealthy', color: 'text-purple-400', desc: 'Health alert: everyone affected' };
+  if (aqi <= 300) return { level: 'Very Unhealthy', color: 'text-purple-400', desc: 'Health alert, everyone affected' };
   return { level: 'Hazardous', color: 'text-red-600', desc: 'Health warnings of emergency' };
 }
 
@@ -623,9 +727,8 @@ function prepare24HourData() {
 function prepare7DayData() {
   const daily1 = state.weather.city1.daily;
   const daily2 = state.weather.city2.daily;
-  const today = todayYMD_NY();
-  const sIdx = daily1.time.findIndex(d => d === today);
-  const s = sIdx >= 0 ? sIdx : 0;
+
+  const s = findStartIdxTodayOrNext(daily1.time);
 
   return daily1.time.slice(s, s + 7).map((date, i) => ({
     date: new Date(date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
@@ -879,9 +982,7 @@ function renderWeatherCard(data, cityName, theme, isWinner, animationClass) {
   const daily = data.daily;
   const uvInfo = getUVLevel(current.uv_index || 0);
 
-  const today = todayYMD_NY();
-  const tIdx = daily.time.findIndex(d => d === today);
-  const todayIdx = tIdx >= 0 ? tIdx : 0;
+  const todayIdx = findStartIdxTodayOrNext(daily.time);
 
   const tempClass = state.previousWeather.city1 &&
     Math.abs(current.temperature_2m - (state.previousWeather[cityName.includes('Oneonta') ? 'city1' : 'city2']?.current?.temperature_2m || current.temperature_2m)) > 2
@@ -992,13 +1093,12 @@ function renderInsightCard(data, cityName, advice, streak, historical, theme, ci
 
   let historicalHTML = '';
   if (historical && historical.daily) {
-    const today = todayYMD_NY();
-    const tIdx = data.daily.time.findIndex(d => d === today);
-    const todayIdx = tIdx >= 0 ? tIdx : 0;
+    const daily = data.daily;
+    const todayIdx = findStartIdxTodayOrNext(daily.time);
 
     const lastYearHigh = historical.daily.temperature_2m_max[0];
     const lastYearLow = historical.daily.temperature_2m_min[0];
-    const currentHigh = data.daily.temperature_2m_max[todayIdx];
+    const currentHigh = daily.temperature_2m_max[todayIdx];
     const diff = Number((currentHigh - lastYearHigh).toFixed(1));
     const warmerCooler = diff > 0 ? 'warmer' : 'cooler';
 
