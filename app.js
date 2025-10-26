@@ -301,20 +301,26 @@ function updateWeatherAnimation() {
 /* ----------------------------- Data fetchers --------------------------- */
 
 async function fetchWeather(lat, lon) {
-  const url = `https://api.open-meteo.com/v1/forecast` +
+  const url =
+    `https://api.open-meteo.com/v1/forecast` +
     `?latitude=${lat}&longitude=${lon}` +
+    // pick only valid "current" variables
     `&current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m,uv_index,visibility` +
-    `&hourly=temperature_2m,precipitation_probability,weather_code,uv_index,wind_speed_10m,time` +
-    `&daily=weather_code,temperature_2m_max,temperature_2m_min,sunrise,sunset,precipitation_probability_max,wind_speed_10m_max,uv_index_max,time` +
+    // do NOT include "time" here
+    `&hourly=temperature_2m,precipitation_probability,weather_code,uv_index,wind_speed_10m` +
+    // do NOT include "time" here
+    `&daily=weather_code,temperature_2m_max,temperature_2m_min,sunrise,sunset,precipitation_probability_max,wind_speed_10m_max,uv_index_max` +
     `&forecast_days=7` +
     `&temperature_unit=${state.settings.tempUnit}` +
     `&wind_speed_unit=mph` +
     `&timezone=America%2FNew_York` +
     `&past_days=0`;
+
   const response = await fetch(url);
   if (!response.ok) throw new Error(`HTTP error, status: ${response.status}`);
   return response.json();
 }
+
 
 async function fetch30DayHistory(lat, lon) {
   try {
