@@ -475,6 +475,7 @@ function calculateBestPlace() {
   
   return { winner, loser };
 }
+
 function getOutfitRecommendation(data) {
   const temp = data.current.temperature_2m;
   const code = data.current.weather_code;
@@ -860,6 +861,7 @@ function render() {
     </div>
   `;
 }
+
 function renderOutfitView(city1, city2, theme) {
   const outfit1 = getOutfitRecommendation(city1);
   const outfit2 = getOutfitRecommendation(city2);
