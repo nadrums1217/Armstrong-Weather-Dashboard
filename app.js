@@ -29,7 +29,7 @@ const THEMES = {
   arctic: { name: 'Arctic', bg: 'theme-arctic', card: 'bg-white bg-opacity-40', border: 'border-gray-300', text: 'text-gray-900' }
 };
 
-/* ---------- Helpers for New York local time, no Date parsing of OM strings ---------- */
+/* ---------- New York time helpers, no Date parsing of API strings ---------- */
 
 // "2025-10-26"
 function todayYMD_NY() {
@@ -61,7 +61,7 @@ function findStartIdxTodayOrNext(dates) {
   return idx >= 0 ? idx : 0;
 }
 
-// "YYYY-MM-DDTHH:MM" to "h:mm AM/PM", no Date parsing
+// format "YYYY-MM-DDTHH:mm" into "h:mm AM/PM", no Date parsing
 function formatLocalClock(s) {
   if (!s) return '';
   const hh = parseInt(s.slice(11, 13), 10);
@@ -69,6 +69,17 @@ function formatLocalClock(s) {
   const ampm = hh >= 12 ? 'PM' : 'AM';
   const h12 = hh % 12 || 12;
   return `${h12}:${mm} ${ampm}`;
+}
+
+// format "YYYY-MM-DD" into "Mon D", no Date parsing
+function formatYMDToLabel(s) {
+  if (!s) return '';
+  const y = s.slice(0, 4);
+  const m = parseInt(s.slice(5, 7), 10);
+  const d = parseInt(s.slice(8, 10), 10);
+  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  if (!y || !m || !d) return s;
+  return `${months[m - 1]} ${d}`;
 }
 
 /* ------------------------------- Animator ------------------------------ */
@@ -286,8 +297,8 @@ async function fetchWeather(lat, lon) {
   const url = `https://api.open-meteo.com/v1/forecast` +
     `?latitude=${lat}&longitude=${lon}` +
     `&current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m,uv_index,visibility` +
-    `&hourly=temperature_2m,precipitation_probability,weather_code,uv_index,wind_speed_10m` +
-    `&daily=weather_code,temperature_2m_max,temperature_2m_min,sunrise,sunset,precipitation_probability_max,wind_speed_10m_max,uv_index_max` +
+    `&hourly=temperature_2m,precipitation_probability,weather_code,uv_index,wind_speed_10m,time` +
+    `&daily=weather_code,temperature_2m_max,temperature_2m_min,sunrise,sunset,precipitation_probability_max,wind_speed_10m_max,uv_index_max,time` +
     `&forecast_days=7` +
     `&temperature_unit=${state.settings.tempUnit}` +
     `&wind_speed_unit=mph` +
@@ -549,8 +560,8 @@ function getMoonPhase() {
   const day = date.getDate();
   let c = 0, e = 0, jd = 0, b = 0;
 
-  if (month < 3) { year--; month += 12; }
-  c = 365.25 * year;
+  if (month < 3) { year++; month += 12; } // keep original algorithm sign if you prefer, this variant is fine
+  c = 365.25 * (year - 1);
   e = 30.6 * (month + 1);
   jd = c + e + day - 694039.09;
   jd /= 29.5305882;
@@ -749,7 +760,7 @@ function prepare7DayData() {
   const s = findStartIdxTodayOrNext(daily1.time);
 
   return daily1.time.slice(s, s + 7).map((date, i) => ({
-    date: new Date(date + 'T00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+    date: formatYMDToLabel(date),
     high1: Math.round(daily1.temperature_2m_max?.[s + i] ?? 0),
     low1: Math.round(daily1.temperature_2m_min?.[s + i] ?? 0),
     high2: Math.round(daily2.temperature_2m_max?.[s + i] ?? 0),
@@ -772,4 +783,536 @@ function renderCharts() {
       labels: hourlyData.map(d => d.time),
       datasets: [
         { label: state.settings.city1.name, data: hourlyData.map(d => d.temp1), borderColor: 'rgb(59, 130, 246)', tension: 0.4 },
-        { label: state.settings.city2.name, data: hourlyData.map(d => d.temp2), borderColor: 'rgb(245, 158, 11)', tension: 0.4
+        { label: state.settings.city2.name, data: hourlyData.map(d => d.temp2), borderColor: 'rgb(245, 158, 11)', tension: 0.4 }
+      ]
+    }, {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { labels: { color: textColor } } },
+      scales: {
+        x: { ticks: { color: textColor }, grid: { color: gridColor } },
+        y: { ticks: { color: textColor }, grid: { color: gridColor } }
+      }
+    });
+
+    createChart('uvChart', 'line', {
+      labels: hourlyData.map(d => d.time),
+      datasets: [
+        { label: state.settings.city1.name, data: hourlyData.map(d => d.uv1), borderColor: 'rgb(249, 115, 22)', tension: 0.4 },
+        { label: state.settings.city2.name, data: hourlyData.map(d => d.uv2), borderColor: 'rgb(236, 72, 153)', tension: 0.4 }
+      ]
+    }, {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { labels: { color: textColor } } },
+      scales: {
+        x: { ticks: { color: textColor }, grid: { color: gridColor } },
+        y: { ticks: { color: textColor }, grid: { color: gridColor } }
+      }
+    });
+
+    createChart('weeklyChart', 'bar', {
+      labels: weeklyData.map(d => d.date),
+      datasets: [
+        { label: `${state.settings.city1.name} High`, data: weeklyData.map(d => d.high1), backgroundColor: 'rgba(59, 130, 246, 0.8)' },
+        { label: `${state.settings.city1.name} Low`, data: weeklyData.map(d => d.low1), backgroundColor: 'rgba(30, 64, 175, 0.8)' },
+        { label: `${state.settings.city2.name} High`, data: weeklyData.map(d => d.high2), backgroundColor: 'rgba(245, 158, 11, 0.8)' },
+        { label: `${state.settings.city2.name} Low`, data: weeklyData.map(d => d.low2), backgroundColor: 'rgba(180, 83, 9, 0.8)' }
+      ]
+    }, {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { labels: { color: textColor } } },
+      scales: {
+        x: { ticks: { color: textColor }, grid: { color: gridColor } },
+        y: { ticks: { color: textColor }, grid: { color: gridColor } }
+      }
+    });
+
+    if (history30.city1.length > 0 && history30.city2.length > 0) {
+      createChart('history30Chart', 'line', {
+        labels: history30.city1.map(d => formatYMDToLabel(d.date)),
+        datasets: [
+          { label: `${state.settings.city1.name} High`, data: history30.city1.map(d => d.high), borderColor: 'rgb(59, 130, 246)', tension: 0.4, fill: false },
+          { label: `${state.settings.city1.name} Low`, data: history30.city1.map(d => d.low), borderColor: 'rgba(59, 130, 246, 0.5)', tension: 0.4, fill: false },
+          { label: `${state.settings.city2.name} High`, data: history30.city2.map(d => d.high), borderColor: 'rgb(245, 158, 11)', tension: 0.4, fill: false },
+          { label: `${state.settings.city2.name} Low`, data: history30.city2.map(d => d.low), borderColor: 'rgba(245, 158, 11, 0.5)', tension: 0.4, fill: false }
+        ]
+      }, {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { labels: { color: textColor } } },
+        scales: {
+          x: { ticks: { color: textColor, maxTicksLimit: 10 }, grid: { color: gridColor } },
+          y: { ticks: { color: textColor }, grid: { color: gridColor } }
+        }
+      });
+    }
+  }, 100);
+}
+
+/* ------------------------------ Rendering ------------------------------ */
+
+function getWeatherIcon(code) {
+  if (code === 0) return '☀️';
+  if (code <= 3) return '⛅';
+  if (code <= 67) return '🌧️';
+  if (code <= 77) return '🌨️';
+  if (code <= 82) return '🌧️';
+  return '⛈️';
+}
+
+function getUVLevel(uv) {
+  if (uv <= 2) return { level: 'Low', color: 'text-green-400' };
+  if (uv <= 5) return { level: 'Moderate', color: 'text-yellow-400' };
+  if (uv <= 7) return { level: 'High', color: 'text-orange-400' };
+  if (uv <= 10) return { level: 'Very High', color: 'text-red-400' };
+  return { level: 'Extreme', color: 'text-purple-400' };
+}
+
+function render() {
+  const theme = THEMES[state.settings.theme];
+  document.body.className = theme.bg;
+  const app = document.getElementById('app');
+
+  if (state.loading) {
+    app.innerHTML = `
+      <div class="min-h-screen flex items-center justify-center ${theme.bg}">
+        <div class="text-2xl ${theme.text}">Loading weather data...</div>
+      </div>
+    `;
+    return;
+  }
+
+  if (state.error) {
+    app.innerHTML = `
+      <div class="min-h-screen flex items-center justify-center p-8 ${theme.bg}">
+        <div class="text-center max-w-2xl">
+          <div class="text-2xl text-red-400 mb-4">⚠️ Error Loading Weather Data</div>
+          <div class="${theme.text} mb-4">${state.error}</div>
+          <button onclick="loadWeather()" class="bg-blue-600 hover:bg-blue-700 px-6 py-3 rounded-xl transition-colors text-white">
+            Try Again
+          </button>
+        </div>
+      </div>
+    `;
+    return;
+  }
+
+  const { city1, city2 } = state.weather;
+  if (!city1 || !city2) return;
+
+  const moonPhase = getMoonPhase();
+  const comparison = getComparisonStats(city1, city2);
+  const bestPlace = calculateBestPlace();
+
+  app.innerHTML = `
+    <div class="min-h-screen p-4 md:p-8 ${theme.bg}">
+      <div class="max-w-7xl mx-auto">
+        <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
+          <h1 class="text-3xl md:text-4xl font-light ${theme.text}">Armstrong Weather Dashboard</h1>
+          <div class="flex gap-2 flex-wrap">
+            <button onclick="state.battleMode = !state.battleMode; render();" class="flex items-center gap-2 ${state.battleMode ? 'bg-green-600' : theme.card} ${theme.border} border hover:opacity-80 px-4 py-2 rounded-xl transition-colors text-white">
+              ⚔️ Battle
+            </button>
+            <button onclick="shareWeather()" class="flex items-center gap-2 ${theme.card} ${theme.border} border hover:opacity-80 px-4 py-2 rounded-xl transition-colors ${theme.text}">
+              📤 Share
+            </button>
+            <button onclick="loadWeather()" class="flex items-center gap-2 ${theme.card} ${theme.border} border hover:opacity-80 px-4 py-2 rounded-xl transition-colors ${theme.text}">
+              🔄 Refresh
+            </button>
+            <button onclick="state.showSettings = true; render();" class="flex items-center gap-2 ${theme.card} ${theme.border} border hover:opacity-80 px-4 py-2 rounded-xl transition-colors ${theme.text}">
+              ⚙️ Settings
+            </button>
+          </div>
+        </div>
+
+        ${state.lastUpdate ? `<div class="text-sm mb-6 ${theme.text} opacity-60">Last updated: ${state.lastUpdate.toLocaleString()}</div>` : ''}
+
+        ${state.battleMode ? `
+          <div class="${theme.card} ${theme.border} border rounded-2xl p-6 mb-6 ${bestPlace.winner.key === 'city1' ? 'battle-animation' : ''}">
+            <div class="text-center">
+              <div class="text-2xl md:text-3xl font-bold ${theme.text} mb-4">🏆 Best Place To Be: ${bestPlace.winner.city}</div>
+              <div class="text-4xl md:text-6xl font-light ${theme.text} mb-4">Weather Score: ${bestPlace.winner.score}/200</div>
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6">
+                <div class="text-left">
+                  <div class="text-lg font-medium ${theme.text} mb-2">✅ Why ${bestPlace.winner.city} wins:</div>
+                  ${bestPlace.winner.reasons.map(r => `<div class="text-sm ${theme.text} opacity-80">• ${r}</div>`).join('')}
+                </div>
+                <div class="text-left">
+                  <div class="text-lg font-medium ${theme.text} mb-2">${bestPlace.loser.city} Score: ${bestPlace.loser.score}/200</div>
+                  <div class="text-sm ${theme.text} opacity-60">Try again tomorrow for a rematch!</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        ` : ''}
+
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+          <div class="${theme.card} ${theme.border} border rounded-2xl p-4">
+            <div class="text-center">
+              <div class="text-4xl mb-2">${moonPhase.emoji}</div>
+              <div class="${theme.text} font-medium">${moonPhase.name}</div>
+            </div>
+          </div>
+          <div class="${theme.card} ${theme.border} border rounded-2xl p-4 md:col-span-2">
+            <div class="${theme.text} font-medium mb-2">Quick Comparison</div>
+            <div class="text-sm ${theme.text} opacity-80 space-y-1">
+              <div>🌡️ ${comparison.temp}</div>
+              <div>💧 ${comparison.humidity}</div>
+              <div>☀️ ${comparison.uv}</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="flex gap-2 mb-6 overflow-x-auto">
+          <button onclick="state.activeTab = 'overview'; render();" class="px-4 md:px-6 py-3 rounded-xl transition-colors whitespace-nowrap ${state.activeTab === 'overview' ? 'bg-blue-600 text-white' : theme.card + ' ' + theme.text}">
+            Overview
+          </button>
+          <button onclick="state.activeTab = 'charts'; render(); renderCharts();" class="px-4 md:px-6 py-3 rounded-xl transition-colors whitespace-nowrap ${state.activeTab === 'charts' ? 'bg-blue-600 text-white' : theme.card + ' ' + theme.text}">
+            📊 Charts
+          </button>
+          <button onclick="state.activeTab = 'insights'; render();" class="px-4 md:px-6 py-3 rounded-xl transition-colors whitespace-nowrap ${state.activeTab === 'insights' ? 'bg-blue-600 text-white' : theme.card + ' ' + theme.text}">
+            💡 Insights
+          </button>
+          <button onclick="state.activeTab = 'outfit'; render();" class="px-4 md:px-6 py-3 rounded-xl transition-colors whitespace-nowrap ${state.activeTab === 'outfit' ? 'bg-blue-600 text-white' : theme.card + ' ' + theme.text}">
+            👔 Outfit
+          </button>
+        </div>
+
+        <div id="shareCapture">
+          ${state.activeTab === 'overview' ? renderOverview(city1, city2, theme, bestPlace) : 
+            state.activeTab === 'charts' ? renderChartsView(theme) : 
+            state.activeTab === 'outfit' ? renderOutfitView(city1, city2, theme) :
+            renderInsightsView(city1, city2, theme)}
+        </div>
+      </div>
+
+      ${state.showSettings ? renderSettings(theme) : ''}
+    </div>
+  `;
+}
+
+function renderOverview(city1, city2, theme, bestPlace) {
+  return `
+    <div class="flex flex-col lg:flex-row gap-6 mobile-stack">
+      ${renderWeatherCard(city1, state.settings.city1.name, theme, state.battleMode && bestPlace.winner.key === 'city1', 'slide-in-left')}
+      ${renderWeatherCard(city2, state.settings.city2.name, theme, state.battleMode && bestPlace.winner.key === 'city2', 'slide-in-right')}
+    </div>
+  `;
+}
+
+function renderWeatherCard(data, cityName, theme, isWinner, animationClass) {
+  const current = data.current;
+  const daily = data.daily;
+  const uvInfo = getUVLevel(current.uv_index || 0);
+
+  const todayIdx = findStartIdxTodayOrNext(daily.time);
+
+  const tempClass = state.previousWeather.city1 &&
+    Math.abs(current.temperature_2m - (state.previousWeather[cityName.includes('Oneonta') ? 'city1' : 'city2']?.current?.temperature_2m || current.temperature_2m)) > 2
+    ? 'temp-change' : '';
+
+  return `
+    <div class="flex-1 ${theme.card} ${theme.border} border rounded-2xl p-6 md:p-8 mobile-p-4 ${isWinner ? 'winner-glow' : ''} weather-card ${animationClass}">
+      <h2 class="text-xl md:text-2xl font-light mb-6 md:mb-8 ${theme.text} fade-in">${cityName} ${isWinner ? '🏆' : ''}</h2>
+
+      <div class="mb-6 md:mb-8">
+        <div class="flex items-center gap-4 mb-6 fade-in">
+          <span class="text-5xl md:text-7xl weather-icon">${getWeatherIcon(current.weather_code)}</span>
+          <div>
+            <div class="text-4xl md:text-6xl font-light ${theme.text} ${tempClass} number-roll">${Math.round(current.temperature_2m)}°</div>
+            <div class="${theme.text} opacity-60 text-base md:text-lg fade-in">Feels like ${Math.round(current.apparent_temperature)}°</div>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-3 md:gap-4">
+          <div class="${theme.card} ${theme.border} border rounded-xl p-3 md:p-4 weather-metric fade-in" style="animation-delay: 0.1s;">
+            <div class="${theme.text} opacity-60 text-xs md:text-sm mb-1 md:mb-2">💧 Humidity</div>
+            <div class="text-xl md:text-2xl ${theme.text} number-roll">${current.relative_humidity_2m}%</div>
+          </div>
+          <div class="${theme.card} ${theme.border} border rounded-xl p-3 md:p-4 weather-metric fade-in" style="animation-delay: 0.2s;">
+            <div class="${theme.text} opacity-60 text-xs md:text-sm mb-1 md:mb-2">💨 Wind</div>
+            <div class="text-xl md:text-2xl ${theme.text} number-roll">${Math.round(current.wind_speed_10m)} mph</div>
+          </div>
+          <div class="${theme.card} ${theme.border} border rounded-xl p-3 md:p-4 weather-metric fade-in" style="animation-delay: 0.3s;">
+            <div class="${theme.text} opacity-60 text-xs md:text-sm mb-1 md:mb-2">☀️ UV Index</div>
+            <div class="text-xl md:text-2xl ${theme.text} number-roll">${Math.round(current.uv_index || 0)} <span class="${'text-xs md:text-sm ' + uvInfo.color}">${uvInfo.level}</span></div>
+          </div>
+          <div class="${theme.card} ${theme.border} border rounded-xl p-3 md:p-4 weather-metric fade-in" style="animation-delay: 0.4s;">
+            <div class="${theme.text} opacity-60 text-xs md:text-sm mb-1 md:mb-2">👁️ Visibility</div>
+            <div class="text-xl md:text-2xl ${theme.text} number-roll">${Math.round((current.visibility || 0) / 1609.34)} mi</div>
+          </div>
+          <div class="${theme.card} ${theme.border} border rounded-xl p-3 md:p-4 weather-metric fade-in" style="animation-delay: 0.5s;">
+            <div class="${theme.text} opacity-60 text-xs md:text-sm mb-1 md:mb-2">🌅 Sunrise</div>
+            <div class="text-base md:text-xl ${theme.text}">${formatLocalClock(daily.sunrise[todayIdx])}</div>
+          </div>
+          <div class="${theme.card} ${theme.border} border rounded-xl p-3 md:p-4 weather-metric fade-in" style="animation-delay: 0.6s;">
+            <div class="${theme.text} opacity-60 text-xs md:text-sm mb-1 md:mb-2">🌇 Sunset</div>
+            <div class="text-base md:text-xl ${theme.text}">${formatLocalClock(daily.sunset[todayIdx])}</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="fade-in" style="animation-delay: 0.7s;">
+        <h3 class="text-base md:text-lg font-light mb-4 ${theme.text}">7-Day Forecast</h3>
+        <div class="space-y-2">
+          ${daily.time.slice(todayIdx, todayIdx + 7).map((date, i) => {
+            const idx = todayIdx + i;
+            const dayUV = getUVLevel(daily.uv_index_max[idx] || 0);
+            return `
+              <div class="flex items-center justify-between ${theme.card} ${theme.border} border rounded-xl p-2 md:p-3 weather-metric fade-in" style="animation-delay: ${0.8 + i * 0.1}s;">
+                <span class="${theme.text} w-24 md:w-32 text-xs md:text-sm">${formatYMDToLabel(date)}</span>
+                <span class="text-xl md:text-2xl weather-icon">${getWeatherIcon(daily.weather_code[idx])}</span>
+                <div class="flex gap-2 md:gap-4 items-center text-xs md:text-sm">
+                  <span class="${theme.text} opacity-60">💧 ${daily.precipitation_probability_max[idx]}%</span>
+                  <span class="${dayUV.color}">☀️ ${Math.round(daily.uv_index_max[idx] || 0)}</span>
+                  <span class="${theme.text} font-medium">${Math.round(daily.temperature_2m_max[idx])}°</span>
+                  <span class="${theme.text} opacity-60">${Math.round(daily.temperature_2m_min[idx])}°</span>
+                </div>
+              </div>
+            `;
+          }).join('')}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function renderOutfitView(city1, city2, theme) {
+  const outfit1 = getOutfitRecommendation(city1);
+  const outfit2 = getOutfitRecommendation(city2);
+
+  return `
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div class="${theme.card} ${theme.border} border rounded-2xl p-6 md:p-8 slide-in-left">
+        <h2 class="text-2xl font-light mb-6 ${theme.text}">${state.settings.city1.name}</h2>
+        <div class="${theme.text} font-medium mb-4">👔 What to Wear Today</div>
+        <div class="space-y-3">
+          ${outfit1.map((item, i) => `
+            <div class="${theme.card} ${theme.border} border rounded-xl p-4 fade-in" style="animation-delay: ${i * 0.1}s;">
+              <div class="text-lg">${item}</div>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+
+      <div class="${theme.card} ${theme.border} border rounded-2xl p-6 md:p-8 slide-in-right">
+        <h2 class="text-2xl font-light mb-6 ${theme.text}">${state.settings.city2.name}</h2>
+        <div class="${theme.text} font-medium mb-4">👔 What to Wear Today</div>
+        <div class="space-y-3">
+          ${outfit2.map((item, i) => `
+            <div class="${theme.card} ${theme.border} border rounded-xl p-4 fade-in" style="animation-delay: ${i * 0.1}s;">
+              <div class="text-lg">${item}</div>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function renderInsightCard(data, cityName, advice, streak, historical, theme, cityKey, animationClass) {
+  const aqiData = state.aqi[cityKey];
+  const aqiInfo = getAQILevel(aqiData?.current?.us_aqi);
+
+  let historicalHTML = '';
+  if (historical && historical.daily) {
+    const daily = data.daily;
+    const todayIdx = findStartIdxTodayOrNext(daily.time);
+
+    const lastYearHigh = historical.daily.temperature_2m_max[0];
+    const lastYearLow = historical.daily.temperature_2m_min[0];
+    const currentHigh = daily.temperature_2m_max[todayIdx];
+    const diff = Number((currentHigh - lastYearHigh).toFixed(1));
+    const warmerCooler = diff > 0 ? 'warmer' : 'cooler';
+
+    historicalHTML = `
+      <div class="${theme.card} ${theme.border} border rounded-xl p-4 fade-in" style="animation-delay: 0.5s;">
+        <div class="${theme.text} font-medium mb-2">📅 This Day Last Year</div>
+        <div class="text-sm ${theme.text} opacity-80">
+          <div>High: ${Math.round(lastYearHigh)}° / Low: ${Math.round(lastYearLow)}°</div>
+          <div class="mt-2">Today is ${Math.abs(diff)}° ${warmerCooler} than last year</div>
+        </div>
+      </div>
+    `;
+  }
+
+  return `
+    <div class="${theme.card} ${theme.border} border rounded-2xl p-6 mobile-p-4 ${animationClass}">
+      <h2 class="text-2xl font-light mb-6 ${theme.text} fade-in">${cityName}</h2>
+
+      <div class="${theme.card} ${theme.border} border rounded-xl p-4 mb-4 fade-in" style="animation-delay: 0.1s;">
+        <div class="${theme.text} font-medium mb-2">💡 Weather Advice</div>
+        <div class="space-y-2">
+          ${advice.map((a, i) => `<div class="text-sm ${theme.text} opacity-80 fade-in" style="animation-delay: ${0.2 + i * 0.1}s;">• ${a}</div>`).join('')}
+        </div>
+      </div>
+
+      ${aqiData ? `
+        <div class="${theme.card} ${theme.border} border rounded-xl p-4 mb-4 fade-in" style="animation-delay: 0.3s;">
+          <div class="${theme.text} font-medium mb-2">🌫️ Air Quality Index</div>
+          <div class="flex items-center justify-between">
+            <div>
+              <div class="text-3xl ${aqiInfo.color} number-roll">${Math.round(aqiData.current.us_aqi)}</div>
+              <div class="text-sm ${theme.text} opacity-60">${aqiInfo.level}</div>
+            </div>
+            <div class="text-sm ${theme.text} opacity-80 text-right">${aqiInfo.desc}</div>
+          </div>
+          <div class="mt-3 grid grid-cols-2 gap-2 text-xs ${theme.text} opacity-70">
+            <div>PM2.5: ${aqiData.current.pm2_5?.toFixed(1) || 'N/A'} µg/m³</div>
+            <div>PM10: ${aqiData.current.pm10?.toFixed(1) || 'N/A'} µg/m³</div>
+          </div>
+        </div>
+      ` : ''}
+
+      ${streak.count ? `
+        <div class="${theme.card} ${theme.border} border rounded-xl p-4 mb-4 fade-in" style="animation-delay: 0.4s;">
+          <div class="${theme.text} font-medium mb-2">🔥 Weather Streak</div>
+          <div class="text-sm ${theme.text} opacity-80">
+            ${streak.count} consecutive ${streak.lastCondition} day${streak.count > 1 ? 's' : ''}!
+          </div>
+        </div>
+      ` : ''}
+
+      ${historicalHTML}
+    </div>
+  `;
+}
+
+function renderInsightsView(city1, city2, theme) {
+  const advice1 = getWeatherAdvice(city1, state.aqi.city1);
+  const advice2 = getWeatherAdvice(city2, state.aqi.city2);
+  const streak1 = state.streaks.city1;
+  const streak2 = state.streaks.city2;
+
+  return `
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      ${renderInsightCard(city1, state.settings.city1.name, advice1, streak1, state.historical.city1, theme, 'city1', 'slide-in-left')}
+      ${renderInsightCard(city2, state.settings.city2.name, advice2, streak2, state.historical.city2, theme, 'city2', 'slide-in-right')}
+    </div>
+  `;
+}
+
+function renderChartsView(theme) {
+  return `
+    <div class="space-y-6 md:space-y-8">
+      <div class="${theme.card} ${theme.border} border rounded-2xl p-4 md:p-6 fade-in">
+        <h3 class="text-lg md:text-xl font-light mb-4 ${theme.text}">24-Hour Temperature Forecast</h3>
+        <div style="height: 250px;"><canvas id="tempChart"></canvas></div>
+      </div>
+
+      <div class="${theme.card} ${theme.border} border rounded-2xl p-4 md:p-6 fade-in" style="animation-delay: 0.1s;">
+        <h3 class="text-lg md:text-xl font-light mb-4 ${theme.text}">24-Hour UV Index</h3>
+        <div style="height: 250px;"><canvas id="uvChart"></canvas></div>
+      </div>
+
+      <div class="${theme.card} ${theme.border} border rounded-2xl p-4 md:p-6 fade-in" style="animation-delay: 0.2s;">
+        <h3 class="text-lg md:text-xl font-light mb-4 ${theme.text}">7-Day Temperature Range</h3>
+        <div style="height: 250px;"><canvas id="weeklyChart"></canvas></div>
+      </div>
+
+      ${state.history30Days.city1.length > 0 ? `
+        <div class="${theme.card} ${theme.border} border rounded-2xl p-4 md:p-6 fade-in" style="animation-delay: 0.3s;">
+          <h3 class="text-lg md:text-xl font-light mb-4 ${theme.text}">📅 30-Day Temperature History</h3>
+          <div style="height: 300px;"><canvas id="history30Chart"></canvas></div>
+        </div>
+      ` : ''}
+    </div>
+  `;
+}
+
+function renderSettings(theme) {
+  return `
+    <div class="fixed inset-0 bg-black bg-opacity-80 flex items-center justify-center z-50 p-4">
+      <div class="${theme.card} ${theme.border} border rounded-2xl p-6 md:p-8 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+        <div class="flex justify-between items-center mb-6">
+          <h2 class="text-xl md:text-2xl font-light ${theme.text}">Settings</h2>
+          <button onclick="state.showSettings = false; render();" class="${theme.text} opacity-60 hover:opacity-100 text-2xl">×</button>
+        </div>
+
+        <div class="space-y-6">
+          <div>
+            <label class="block ${theme.text} mb-2">City 1</label>
+            <input id="city1Name" value="${state.settings.city1.name}" class="w-full ${theme.card} ${theme.border} border rounded-xl px-4 py-3 ${theme.text}">
+            <div class="grid grid-cols-2 gap-4 mt-2">
+              <input id="city1Lat" type="number" step="0.0001" value="${state.settings.city1.lat}" placeholder="Latitude" class="${theme.card} ${theme.border} border rounded-xl px-4 py-2 ${theme.text}">
+              <input id="city1Lon" type="number" step="0.0001" value="${state.settings.city1.lon}" placeholder="Longitude" class="${theme.card} ${theme.border} border rounded-xl px-4 py-2 ${theme.text}">
+            </div>
+          </div>
+
+          <div>
+            <label class="block ${theme.text} mb-2">City 2</label>
+            <input id="city2Name" value="${state.settings.city2.name}" class="w-full ${theme.card} ${theme.border} border rounded-xl px-4 py-3 ${theme.text}">
+            <div class="grid grid-cols-2 gap-4 mt-2">
+              <input id="city2Lat" type="number" step="0.0001" value="${state.settings.city2.lat}" placeholder="Latitude" class="${theme.card} ${theme.border} border rounded-xl px-4 py-2 ${theme.text}">
+              <input id="city2Lon" type="number" step="0.0001" value="${state.settings.city2.lon}" placeholder="Longitude" class="${theme.card} ${theme.border} border rounded-xl px-4 py-2 ${theme.text}">
+            </div>
+          </div>
+
+          <div>
+            <label class="block ${theme.text} mb-2">Temperature Unit</label>
+            <select id="tempUnit" class="w-full ${theme.card} ${theme.border} border rounded-xl px-4 py-3 ${theme.text}">
+              <option value="fahrenheit" ${state.settings.tempUnit === 'fahrenheit' ? 'selected' : ''}>Fahrenheit</option>
+              <option value="celsius" ${state.settings.tempUnit === 'celsius' ? 'selected' : ''}>Celsius</option>
+            </select>
+          </div>
+
+          <div>
+            <label class="block ${theme.text} mb-2">Theme</label>
+            <select id="theme" class="w-full ${theme.card} ${theme.border} border rounded-xl px-4 py-3 ${theme.text}">
+              ${Object.entries(THEMES).map(([key, t]) =>
+                `<option value="${key}" ${state.settings.theme === key ? 'selected' : ''}>${t.name}</option>`
+              ).join('')}
+            </select>
+          </div>
+
+          <div class="flex items-center justify-between">
+            <span class="${theme.text}">Weather Animations</span>
+            <label class="relative inline-flex items-center cursor-pointer">
+              <input type="checkbox" id="animations" ${state.settings.animations ? 'checked' : ''} class="sr-only peer">
+              <div class="w-11 h-6 bg-gray-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+            </label>
+          </div>
+
+          <button onclick="saveSettings()" class="w-full bg-blue-600 hover:bg-blue-700 text-white rounded-xl py-3 font-medium transition-colors">
+            Apply Changes
+          </button>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+/* ------------------------------ Settings ------------------------------- */
+
+function saveSettings() {
+  state.settings = {
+    city1: {
+      name: document.getElementById('city1Name').value,
+      lat: parseFloat(document.getElementById('city1Lat').value),
+      lon: parseFloat(document.getElementById('city1Lon').value)
+    },
+    city2: {
+      name: document.getElementById('city2Name').value,
+      lat: parseFloat(document.getElementById('city2Lat').value),
+      lon: parseFloat(document.getElementById('city2Lon').value)
+    },
+    tempUnit: document.getElementById('tempUnit').value,
+    theme: document.getElementById('theme').value,
+    animations: document.getElementById('animations').checked,
+    autoRefresh: state.settings.autoRefresh
+  };
+  localStorage.setItem('weatherSettings', JSON.stringify(state.settings));
+  state.showSettings = false;
+  loadWeather();
+}
+
+/* --------------------------------- Boot -------------------------------- */
+
+window.addEventListener('DOMContentLoaded', () => {
+  loadWeather();
+  if (state.settings.autoRefresh) {
+    setInterval(loadWeather, 3600000);
+  }
+});
