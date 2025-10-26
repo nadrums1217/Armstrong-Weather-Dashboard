@@ -1,6 +1,3 @@
-Here you go, the full JS with Option A and forecasts anchored to today and now.
-
-```js
 const state = {
   weather: { city1: null, city2: null },
   historical: { city1: null, city2: null },
@@ -1194,4 +1191,3 @@ window.addEventListener('DOMContentLoaded', () => {
     setInterval(loadWeather, 3600000);
   }
 });
-```
