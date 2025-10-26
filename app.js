@@ -29,9 +29,9 @@ const THEMES = {
   arctic: { name: 'Arctic', bg: 'theme-arctic', card: 'bg-white bg-opacity-40', border: 'border-gray-300', text: 'text-gray-900' }
 };
 
-/* ---------- Timezone safe helpers for America/New_York ---------- */
+/* ---------- Helpers for New York local time, no Date parsing of OM strings ---------- */
 
-// "YYYY-MM-DD"
+// "2025-10-26"
 function todayYMD_NY() {
   const now = new Date();
   const ny = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }));
@@ -41,7 +41,7 @@ function todayYMD_NY() {
   return `${y}-${m}-${d}`;
 }
 
-// "YYYY-MM-DDTHH:00"
+// "2025-10-26T14:00"
 function nyNowHourKey() {
   const now = new Date();
   const ny = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }));
@@ -61,7 +61,7 @@ function findStartIdxTodayOrNext(dates) {
   return idx >= 0 ? idx : 0;
 }
 
-// format "YYYY-MM-DDTHH:mm" into "h:mm AM/PM" without Date parsing
+// "YYYY-MM-DDTHH:MM" to "h:mm AM/PM", no Date parsing
 function formatLocalClock(s) {
   if (!s) return '';
   const hh = parseInt(s.slice(11, 13), 10);
@@ -69,26 +69,6 @@ function formatLocalClock(s) {
   const ampm = hh >= 12 ? 'PM' : 'AM';
   const h12 = hh % 12 || 12;
   return `${h12}:${mm} ${ampm}`;
-}
-
-const WEEKDAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
-const MONTHS_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-
-// "YYYY-MM-DD" -> "Mon, Oct 26" using UTC calendar so weekday matches the date
-function weekdayMonthDay(ymd) {
-  const d = new Date(ymd + 'T00:00:00Z');
-  const wd = WEEKDAYS[d.getUTCDay()];
-  const m = MONTHS_SHORT[d.getUTCMonth()];
-  const day = String(d.getUTCDate()).padStart(2, '0');
-  return `${wd}, ${m} ${day}`;
-}
-
-// "YYYY-MM-DD" -> "Oct 26"
-function monthDayShort(ymd) {
-  const d = new Date(ymd + 'T00:00:00Z');
-  const m = MONTHS_SHORT[d.getUTCMonth()];
-  const day = d.getUTCDate();
-  return `${m} ${day}`;
 }
 
 /* ------------------------------- Animator ------------------------------ */
@@ -306,8 +286,8 @@ async function fetchWeather(lat, lon) {
   const url = `https://api.open-meteo.com/v1/forecast` +
     `?latitude=${lat}&longitude=${lon}` +
     `&current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m,uv_index,visibility` +
-    `&hourly=temperature_2m,precipitation_probability,weather_code,uv_index,wind_speed_10m,time` +
-    `&daily=weather_code,temperature_2m_max,temperature_2m_min,sunrise,sunset,precipitation_probability_max,wind_speed_10m_max,uv_index_max,time` +
+    `&hourly=temperature_2m,precipitation_probability,weather_code,uv_index,wind_speed_10m` +
+    `&daily=weather_code,temperature_2m_max,temperature_2m_min,sunrise,sunset,precipitation_probability_max,wind_speed_10m_max,uv_index_max` +
     `&forecast_days=7` +
     `&temperature_unit=${state.settings.tempUnit}` +
     `&wind_speed_unit=mph` +
@@ -323,18 +303,21 @@ async function fetch30DayHistory(lat, lon) {
     const endDate = new Date();
     const startDate = new Date();
     startDate.setDate(startDate.getDate() - 30);
+
     const start = startDate.toISOString().split('T')[0];
     const end = endDate.toISOString().split('T')[0];
+
     const url = `https://archive-api.open-meteo.com/v1/archive?latitude=${lat}&longitude=${lon}&start_date=${start}&end_date=${end}&daily=temperature_2m_max,temperature_2m_min&temperature_unit=${state.settings.tempUnit}&timezone=America%2FNew_York`;
     const response = await fetch(url);
     if (!response.ok) return [];
     const data = await response.json();
+
     return data.daily.time.map((date, i) => ({
       date,
       high: data.daily.temperature_2m_max[i],
       low: data.daily.temperature_2m_min[i]
     }));
-  } catch {
+  } catch (e) {
     return [];
   }
 }
@@ -345,7 +328,7 @@ async function fetchAQI(lat, lon) {
     const response = await fetch(url);
     if (!response.ok) return null;
     return response.json();
-  } catch {
+  } catch (e) {
     return null;
   }
 }
@@ -356,11 +339,12 @@ async function fetchHistoricalWeather(lat, lon) {
     const lastYear = new Date(today);
     lastYear.setFullYear(lastYear.getFullYear() - 1);
     const dateStr = lastYear.toISOString().split('T')[0];
+
     const url = `https://archive-api.open-meteo.com/v1/archive?latitude=${lat}&longitude=${lon}&start_date=${dateStr}&end_date=${dateStr}&daily=temperature_2m_max,temperature_2m_min,precipitation_sum&temperature_unit=${state.settings.tempUnit}&timezone=America%2FNew_York`;
     const response = await fetch(url);
     if (!response.ok) return null;
     return response.json();
-  } catch {
+  } catch (e) {
     return null;
   }
 }
@@ -569,4 +553,223 @@ function getMoonPhase() {
   c = 365.25 * year;
   e = 30.6 * (month + 1);
   jd = c + e + day - 694039.09;
-  jd
+  jd /= 29.5305882;
+  b = parseInt(jd);
+  jd -= b;
+  b = Math.round(jd * 8);
+  if (b >= 8) b = 0;
+
+  const phases = [
+    { name: 'New Moon', emoji: '🌑' },
+    { name: 'Waxing Crescent', emoji: '🌒' },
+    { name: 'First Quarter', emoji: '🌓' },
+    { name: 'Waxing Gibbous', emoji: '🌔' },
+    { name: 'Full Moon', emoji: '🌕' },
+    { name: 'Waning Gibbous', emoji: '🌖' },
+    { name: 'Last Quarter', emoji: '🌗' },
+    { name: 'Waning Crescent', emoji: '🌘' }
+  ];
+  return phases[b];
+}
+
+function calculateBestPlace() {
+  const c1 = state.weather.city1;
+  const c2 = state.weather.city2;
+
+  let score1 = 0, score2 = 0;
+  const reasons1 = [], reasons2 = [];
+
+  const temp1 = c1.current.temperature_2m;
+  const temp2 = c2.current.temperature_2m;
+
+  const idealTemp = 72;
+  const tempScore1 = 100 - Math.abs(temp1 - idealTemp) * 2;
+  const tempScore2 = 100 - Math.abs(temp2 - idealTemp) * 2;
+  score1 += Math.max(0, tempScore1);
+  score2 += Math.max(0, tempScore2);
+
+  if (tempScore1 > tempScore2) reasons1.push(`Better temperature (${Math.round(temp1)}°F)`);
+  else if (tempScore2 > tempScore1) reasons2.push(`Better temperature (${Math.round(temp2)}°F)`);
+
+  if (c1.current.weather_code === 0) { score1 += 50; reasons1.push('Clear skies'); }
+  if (c2.current.weather_code === 0) { score2 += 50; reasons2.push('Clear skies'); }
+
+  if (c1.current.weather_code > 60) { score1 -= 30; reasons2.push('No precipitation'); }
+  if (c2.current.weather_code > 60) { score2 -= 30; reasons1.push('No precipitation'); }
+
+  const humidity1 = c1.current.relative_humidity_2m;
+  const humidity2 = c2.current.relative_humidity_2m;
+  const humidityScore1 = 50 - Math.abs(humidity1 - 50);
+  const humidityScore2 = 50 - Math.abs(humidity2 - 50);
+  score1 += humidityScore1;
+  score2 += humidityScore2;
+
+  if (humidityScore1 > humidityScore2 + 10) reasons1.push('Comfortable humidity');
+  else if (humidityScore2 > humidityScore1 + 10) reasons2.push('Comfortable humidity');
+
+  const uv1 = c1.current.uv_index || 0;
+  const uv2 = c2.current.uv_index || 0;
+  if (uv1 < 3) { score1 += 20; reasons1.push('Low UV exposure'); }
+  if (uv2 < 3) { score2 += 20; reasons2.push('Low UV exposure'); }
+
+  const aqi1 = state.aqi.city1?.current?.us_aqi || 50;
+  const aqi2 = state.aqi.city2?.current?.us_aqi || 50;
+  score1 += Math.max(0, (100 - aqi1) / 2);
+  score2 += Math.max(0, (100 - aqi2) / 2);
+
+  if (aqi1 < 50) reasons1.push('Excellent air quality');
+  if (aqi2 < 50) reasons2.push('Excellent air quality');
+
+  const winner = score1 > score2 ?
+    { city: state.settings.city1.name, score: Math.round(score1), reasons: reasons1, key: 'city1' } :
+    { city: state.settings.city2.name, score: Math.round(score2), reasons: reasons2, key: 'city2' };
+
+  const loser = score1 > score2 ?
+    { city: state.settings.city2.name, score: Math.round(score2), key: 'city2' } :
+    { city: state.settings.city1.name, score: Math.round(score1), key: 'city1' };
+
+  return { winner, loser };
+}
+
+function getOutfitRecommendation(data) {
+  const temp = data.current.temperature_2m;
+  const code = data.current.weather_code;
+  const wind = data.current.wind_speed_10m;
+  const outfit = [];
+
+  if (temp < 30) outfit.push('🧥 Heavy winter coat', '🧣 Scarf and gloves', '🥾 Insulated boots');
+  else if (temp < 50) outfit.push('🧥 Jacket or coat', '👖 Long pants', '👟 Closed-toe shoes');
+  else if (temp < 70) outfit.push('👕 Long sleeve shirt', '👖 Pants or jeans');
+  else if (temp < 85) outfit.push('👕 T-shirt', '🩳 Shorts or light pants');
+  else outfit.push('👕 Light breathable clothing', '🩳 Shorts', '🧢 Hat for sun protection');
+
+  if (code > 60 && code <= 67) outfit.push('☔ Umbrella', '🥾 Waterproof shoes');
+  else if (code > 67) outfit.push('🧤 Waterproof gloves', '☔ Rain gear');
+
+  if (wind > 15) outfit.push('🧥 Windbreaker');
+  if (data.current.uv_index > 6) outfit.push('🕶️ Sunglasses', '🧴 Sunscreen');
+
+  return outfit.slice(0, 5);
+}
+
+function getAQILevel(aqi) {
+  if (!aqi) return { level: 'Unknown', color: 'text-zinc-400', desc: 'No data' };
+  if (aqi <= 50) return { level: 'Good', color: 'text-green-400', desc: 'Air quality is satisfactory' };
+  if (aqi <= 100) return { level: 'Moderate', color: 'text-yellow-400', desc: 'Acceptable for most people' };
+  if (aqi <= 150) return { level: 'Unhealthy for Sensitive', color: 'text-orange-400', desc: 'Sensitive groups may be affected' };
+  if (aqi <= 200) return { level: 'Unhealthy', color: 'text-red-400', desc: 'Everyone may begin to feel effects' };
+  if (aqi <= 300) return { level: 'Very Unhealthy', color: 'text-purple-400', desc: 'Health alert, everyone affected' };
+  return { level: 'Hazardous', color: 'text-red-600', desc: 'Health warnings of emergency' };
+}
+
+function getWeatherAdvice(data, aqi) {
+  const temp = data.current.temperature_2m;
+  const weatherCode = data.current.weather_code;
+  const uvIndex = data.current.uv_index || 0;
+  const aqiLevel = aqi?.current?.us_aqi || 0;
+
+  const advice = [];
+  if (weatherCode === 0) advice.push('☀️ Beautiful day. Perfect for outdoor activities');
+  else if (weatherCode <= 3) advice.push('⛅ Partly cloudy, great weather for a walk');
+  else if (weatherCode <= 67) advice.push('☔ Rain expected, bring an umbrella');
+  else if (weatherCode <= 77) advice.push('🌨️ Snow expected, dress warmly');
+
+  if (temp < 32) advice.push('🥶 Freezing temps, layer up and protect extremities');
+  else if (temp < 50) advice.push('🧥 Cool weather, jacket recommended');
+  else if (temp > 85) advice.push('🌡️ Hot day, stay hydrated and seek shade');
+
+  if (uvIndex > 7) advice.push('🕶️ High UV, wear sunscreen and sunglasses');
+  if (aqiLevel > 100) advice.push('😷 Poor air quality, consider limiting outdoor activity');
+
+  if (advice.length === 0) advice.push('👍 Good weather for most activities');
+  return advice;
+}
+
+function getComparisonStats(data1, data2) {
+  const temp1 = data1.current.temperature_2m;
+  const temp2 = data2.current.temperature_2m;
+  const tempDiff = Math.abs(temp1 - temp2);
+  const warmer = temp1 > temp2 ? state.settings.city1.name : state.settings.city2.name;
+  const colder = temp1 < temp2 ? state.settings.city1.name : state.settings.city2.name;
+
+  const humidity1 = data1.current.relative_humidity_2m;
+  const humidity2 = data2.current.relative_humidity_2m;
+  const humidityDiff = Math.abs(humidity1 - humidity2);
+  const moreHumid = humidity1 > humidity2 ? state.settings.city1.name : state.settings.city2.name;
+
+  const uv1 = data1.current.uv_index || 0;
+  const uv2 = data2.current.uv_index || 0;
+  const uvDiff = Math.abs(uv1 - uv2);
+
+  return {
+    temp: `${warmer} is ${tempDiff.toFixed(1)}°F warmer than ${colder}`,
+    humidity: `${moreHumid} is ${humidityDiff}% more humid`,
+    uv: uvDiff > 2 ? `UV index differs by ${uvDiff.toFixed(1)} points` : 'Similar UV exposure'
+  };
+}
+
+/* ------------------------------- Charts -------------------------------- */
+
+function createChart(canvasId, type, data, options) {
+  const canvas = document.getElementById(canvasId);
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  if (canvas.chart) canvas.chart.destroy();
+  canvas.chart = new Chart(ctx, { type, data, options });
+}
+
+function prepare24HourData() {
+  const hourly1 = state.weather.city1.hourly;
+  const hourly2 = state.weather.city2.hourly;
+
+  const key = nyNowHourKey();
+
+  let start = hourly1.time.findIndex(t => t === key);
+  if (start < 0) start = hourly1.time.findIndex(t => t > key);
+  if (start < 0) start = 0;
+
+  return Array.from({ length: 24 }, (_, i) => {
+    const k = start + i;
+    const t = hourly1.time[k] || '';
+    const label = t ? formatLocalClock(t) : '';
+    return {
+      time: label,
+      temp1: Math.round(hourly1.temperature_2m?.[k] ?? 0),
+      temp2: Math.round(hourly2.temperature_2m?.[k] ?? 0),
+      uv1: Math.max(0, hourly1.uv_index?.[k] ?? 0),
+      uv2: Math.max(0, hourly2.uv_index?.[k] ?? 0)
+    };
+  });
+}
+
+function prepare7DayData() {
+  const daily1 = state.weather.city1.daily;
+  const daily2 = state.weather.city2.daily;
+
+  const s = findStartIdxTodayOrNext(daily1.time);
+
+  return daily1.time.slice(s, s + 7).map((date, i) => ({
+    date: new Date(date + 'T00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+    high1: Math.round(daily1.temperature_2m_max?.[s + i] ?? 0),
+    low1: Math.round(daily1.temperature_2m_min?.[s + i] ?? 0),
+    high2: Math.round(daily2.temperature_2m_max?.[s + i] ?? 0),
+    low2: Math.round(daily2.temperature_2m_min?.[s + i] ?? 0)
+  }));
+}
+
+function renderCharts() {
+  if (!state.weather.city1 || !state.weather.city2) return;
+
+  const hourlyData = prepare24HourData();
+  const weeklyData = prepare7DayData();
+  const history30 = state.history30Days;
+
+  setTimeout(() => {
+    const gridColor = state.settings.theme === 'arctic' ? '#ccc' : '#333';
+    const textColor = state.settings.theme === 'arctic' ? '#111' : '#fff';
+
+    createChart('tempChart', 'line', {
+      labels: hourlyData.map(d => d.time),
+      datasets: [
+        { label: state.settings.city1.name, data: hourlyData.map(d => d.temp1), borderColor: 'rgb(59, 130, 246)', tension: 0.4 },
+        { label: state.settings.city2.name, data: hourlyData.map(d => d.temp2), borderColor: 'rgb(245, 158, 11)', tension: 0.4
