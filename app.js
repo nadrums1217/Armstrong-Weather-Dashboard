@@ -827,7 +827,7 @@ function render() {
         ${state.lastUpdate ? `<div class="text-sm mb-6 ${theme.text} opacity-60">Last updated: ${new Date(state.lastUpdate).toLocaleString()}</div>` : ''}
 
         ${state.battleMode ? `
-          <div class="${theme.card} ${theme.border} border rounded-2xl p-6 mb-6 ${bestPlace.winner.key === 'city1' ? 'battle-animation' : ''}">
+          <div class="${theme.card} ${theme.border} border rounded-2xl p-6 mb-6">
             <div class="text-center">
               <div class="text-2xl md:text-3xl font-bold ${theme.text} mb-4">🏆 Best Place To Be: ${bestPlace.winner.city}</div>
               <div class="text-4xl md:text-6xl font-light ${theme.text} mb-4">Weather Score: ${bestPlace.winner.score}/100</div>
@@ -838,7 +838,7 @@ function render() {
                 </div>
                 <div class="text-left">
                   <div class="text-lg font-medium ${theme.text} mb-2">${bestPlace.loser.city} Score: ${bestPlace.loser.score}/100</div>
-                  <div class="text-sm ${theme.text} opacity-60">Try again tomorrow for a rematch!</div>
+                  <div class="text-sm ${theme.text} opacity-60">Try again tomorrow for a rematch</div>
                 </div>
               </div>
             </div>
@@ -878,7 +878,7 @@ function render() {
         </div>
 
         <div id="shareCapture">
-          ${state.activeTab === 'overview' ? renderOverview(city1, city2, theme, calculateBestPlace()) : 
+          ${state.activeTab === 'overview' ? renderOverview(city1, city2, theme, bestPlace) : 
             state.activeTab === 'charts' ? renderChartsView(theme) : 
             state.activeTab === 'outfit' ? renderOutfitView(city1, city2, theme) :
             renderInsightsView(city1, city2, theme)}
@@ -1128,6 +1128,7 @@ function getComparisonStats(data1, data2) {
 
 /* =========================== BEST PLACE SCORE ========================= */
 /* 0 to 100 scale, higher is better */
+
 function calculateBestPlace() {
   const { city1, city2 } = state.weather;
   if (!city1 || !city2) {
@@ -1140,31 +1141,32 @@ function calculateBestPlace() {
   function clamp01(x) { return Math.max(0, Math.min(1, x)); }
 
   function scoreCity(city) {
-    // Start at 50, add or subtract based on comfort, clamp to 0..100
+    // Start at 50, add or subtract based on comfort, clamp to 0 through 100
     let s = 50;
 
-    const t = city.current.temperature_2m;       // ideal band 70 to 80
+    const t = city.current.temperature_2m;       // ideal near 75
     const h = city.current.relative_humidity_2m; // ideal near 50
-    const uv = city.current.uv_index || 0;       // lower better
-    const code = city.current.weather_code || 0; // clear better
+    const uv = city.current.uv_index || 0;       // lower is better
+    const code = city.current.weather_code || 0; // lower is clearer
 
-    // Temperature, up to +25 for ideal, down to -25 for extreme
+    // Temperature, up to +25 if very close to 75, small penalty if far
     const tempDiffFromIdeal = Math.abs(t - 75);
-    const tempComponent = 25 * clamp01(1 - tempDiffFromIdeal / 30); // 0 to +25
-    s += tempComponent - 25 * clamp01((tempDiffFromIdeal - 15) / 20); // small penalty if far outside
+    const tempPlus = 25 * clamp01(1 - tempDiffFromIdeal / 30);
+    const tempMinus = 25 * clamp01((tempDiffFromIdeal - 15) / 20);
+    s += tempPlus - tempMinus;
 
-    // Humidity, up to +10 near 50, down to -10 if very high or very low
+    // Humidity, up to +10 near 50, minus up to 10 if far from 50
     const humDiff = Math.abs(h - 50);
     s += 10 * clamp01(1 - humDiff / 50) - 10 * clamp01((humDiff - 20) / 40);
 
-    // UV penalty, up to -10 if UV > 8
+    // UV penalty, up to 10 points if UV is 12
     if (uv > 8) s -= 10 * clamp01((uv - 8) / 4);
 
-    // Precip or snow penalty
-    if (code > 60 && code <= 67) s -= 10;  // rain
-    if (code > 67) s -= 20;                // snow or storms
+    // Weather code penalty
+    if (code > 60 && code <= 67) s -= 10; // rain
+    if (code > 67) s -= 20;               // snow or storms
 
-    // Clamp to 0..100
+    // Clamp to 0 through 100
     s = Math.max(0, Math.min(100, Math.round(s)));
     return s;
   }
@@ -1268,7 +1270,7 @@ function renderInsightCard(data, cityName, advice, streak, historical, theme, ci
         <div class="${theme.card} ${theme.border} border rounded-xl p-4 mb-4 fade-in" style="animation-delay: 0.4s;">
           <div class="${theme.text} font-medium mb-2">🔥 Weather Streak</div>
           <div class="text-sm ${theme.text} opacity-80">
-            ${streak.count} consecutive ${streak.lastCondition} day${streak.count > 1 ? 's' : ''}!
+            ${streak.count} consecutive ${streak.lastCondition} day${streak.count > 1 ? 's' : ''}
           </div>
         </div>
       ` : ''}
