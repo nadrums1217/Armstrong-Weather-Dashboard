@@ -1,5 +1,7 @@
 /* ============================== STATE =============================== */
 
+const PAGE_TITLE = 'Armstrong Weather Dashboard';
+
 const state = {
   weather: { city1: null, city2: null },
   historical: { city1: null, city2: null },
@@ -22,12 +24,13 @@ const state = {
     theme: 'dark',
     animations: true
   },
-  streaks: JSON.parse(localStorage.getItem('weatherStreaks')) || { city1: {}, city2: {} }
+  streaks: JSON.parse(localStorage.getItem('weatherStreaks')) || { city1: {}, city2: {} },
+  winStats: JSON.parse(localStorage.getItem('weatherWins')) || { city1: 0, city2: 0, lastDate: null }
 };
 
 const THEMES = {
-  dark: { name: 'Dark', bg: 'theme-dark', card: 'bg-zinc-900', border: 'border-zinc-800', text: 'text-zinc-100' },
-  ocean: { name: 'Ocean', bg: 'theme-ocean', card: 'bg-white bg-opacity-10', border: 'border-white border-opacity-20', text: 'text-white' },
+  dark:   { name: 'Dark',   bg: 'theme-dark',   card: 'bg-zinc-900',        border: 'border-zinc-800',  text: 'text-zinc-100' },
+  ocean:  { name: 'Ocean',  bg: 'theme-ocean',  card: 'bg-white bg-opacity-10', border: 'border-white border-opacity-20', text: 'text-white' },
   sunset: { name: 'Sunset', bg: 'theme-sunset', card: 'bg-white bg-opacity-10', border: 'border-white border-opacity-20', text: 'text-white' },
   forest: { name: 'Forest', bg: 'theme-forest', card: 'bg-white bg-opacity-10', border: 'border-white border-opacity-20', text: 'text-white' },
   arctic: { name: 'Arctic', bg: 'theme-arctic', card: 'bg-white bg-opacity-40', border: 'border-gray-300', text: 'text-gray-900' }
@@ -71,29 +74,18 @@ function formatLocalClock(s) {
   return `${h12}:${mm} ${ampm}`;
 }
 
-function formatYMDToLabel(s) {
-  if (!s) return '';
-  const m = parseInt(s.slice(5, 7), 10);
-  const d = parseInt(s.slice(8, 10), 10);
-  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-  return `${months[m - 1]} ${d}`;
-}
-
-function ordinal(n) {
-  const s = ['th','st','nd','rd'], v = n % 100;
-  return s[(v - 20) % 10] || s[v] || s[0];
-}
+function ordinal(n) { const s = ['th','st','nd','rd'], v = n % 100; return s[(v - 20) % 10] || s[v] || s[0]; }
 
 function formatFullDayDate(ymd) {
   if (!ymd) return '';
   const [y, m, d] = ymd.split('-').map(Number);
   const dt = new Date(Date.UTC(y, m - 1, d, 12, 0, 0));
   const weekday = new Intl.DateTimeFormat('en-US', { weekday: 'long', timeZone: 'America/New_York' }).format(dt);
-  const month = new Intl.DateTimeFormat('en-US', { month: 'long', timeZone: 'America/New_York' }).format(dt);
+  const month = new Intl.DateTimeFormat('en-US', { month: 'long',  timeZone: 'America/New_York' }).format(dt);
   return `${weekday}, ${month} ${d}${ordinal(d)}`;
 }
 
-function formatShortDayDate(ymd) {
+function formatYMDToLabel(ymd) {
   if (!ymd) return '';
   const [y, m, d] = ymd.split('-').map(Number);
   const dt = new Date(Date.UTC(y, m - 1, d, 12, 0, 0));
@@ -135,6 +127,52 @@ function injectStyles() {
   document.head.appendChild(style);
 }
 
+/* ============================= PAGE TITLE ============================ */
+
+function updatePageTitle() {
+  if (document.title !== PAGE_TITLE) document.title = PAGE_TITLE;
+}
+
+/* ============================== FAVICON =============================== */
+/* Draw a tiny emoji favicon into a canvas, then set it as <link rel="icon"> */
+
+function setFaviconEmoji(emoji) {
+  try {
+    const size = 64;
+    const canvas = document.createElement('canvas');
+    canvas.width = size; canvas.height = size;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    // background, subtle circle for dark themes
+    ctx.fillStyle = '#111';
+    ctx.beginPath(); ctx.arc(size/2, size/2, size/2, 0, Math.PI*2); ctx.fill();
+
+    // emoji
+    ctx.font = '48px system-ui, Apple Color Emoji, Segoe UI Emoji, Noto Color Emoji';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(emoji, size/2, size/2 + 2);
+
+    const url = canvas.toDataURL('image/png');
+    let link = document.querySelector('link[rel="icon"]#app-favicon');
+    if (!link) {
+      link = document.createElement('link');
+      link.rel = 'icon';
+      link.id = 'app-favicon';
+      document.head.appendChild(link);
+    }
+    link.href = url;
+  } catch {}
+}
+
+function updateFaviconFromWeather() {
+  const w = state.weather.city1 || state.weather.city2;
+  if (!w) return;
+  const emoji = getWeatherIcon(w.current.weather_code);
+  setFaviconEmoji(emoji);
+}
+
 /* ============================== ANIMATOR ============================== */
 
 class WeatherAnimator {
@@ -149,12 +187,7 @@ class WeatherAnimator {
       if (appRoot) appRoot.classList.add('relative', 'z-10');
     }
     const ctx = this.canvas.getContext && this.canvas.getContext('2d');
-    if (!ctx) {
-      this.ctx = null;
-      this.particles = [];
-      this._raf = null;
-      return;
-    }
+    if (!ctx) { this.ctx = null; this.particles = []; this._raf = null; return; }
     this.ctx = ctx;
     this.particles = [];
     this._raf = null;
@@ -179,22 +212,14 @@ class WeatherAnimator {
     if (!this.ctx) return;
     this.particles = [];
     this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
-    if (this._raf) {
-      cancelAnimationFrame(this._raf);
-      this._raf = null;
-    }
+    if (this._raf) { cancelAnimationFrame(this._raf); this._raf = null; }
   }
 
   createRain() {
     if (!this.ctx) return;
     this.clear();
     for (let i = 0; i < 100; i++) {
-      this.particles.push({
-        x: Math.random() * this.canvas.width,
-        y: Math.random() * this.canvas.height,
-        speed: 5 + Math.random() * 5,
-        length: 10 + Math.random() * 20
-      });
+      this.particles.push({ x: Math.random() * this.canvas.width, y: Math.random() * this.canvas.height, speed: 5 + Math.random() * 5, length: 10 + Math.random() * 20 });
     }
     this.animateRain();
   }
@@ -206,34 +231,19 @@ class WeatherAnimator {
     this.ctx.lineWidth = 2;
 
     this.particles.forEach(p => {
-      this.ctx.beginPath();
-      this.ctx.moveTo(p.x, p.y);
-      this.ctx.lineTo(p.x, p.y + p.length);
-      this.ctx.stroke();
-
+      this.ctx.beginPath(); this.ctx.moveTo(p.x, p.y); this.ctx.lineTo(p.x, p.y + p.length); this.ctx.stroke();
       p.y += p.speed;
-      if (p.y > this.canvas.height) {
-        p.y = -p.length;
-        p.x = Math.random() * this.canvas.width;
-      }
+      if (p.y > this.canvas.height) { p.y = -p.length; p.x = Math.random() * this.canvas.width; }
     });
 
-    if (state.settings.animations) {
-      this._raf = requestAnimationFrame(() => this.animateRain());
-    }
+    if (state.settings.animations) this._raf = requestAnimationFrame(() => this.animateRain());
   }
 
   createSnow() {
     if (!this.ctx) return;
     this.clear();
     for (let i = 0; i < 50; i++) {
-      this.particles.push({
-        x: Math.random() * this.canvas.width,
-        y: Math.random() * this.canvas.height,
-        speed: 1 + Math.random() * 2,
-        size: 2 + Math.random() * 4,
-        wobble: Math.random() * 2
-      });
+      this.particles.push({ x: Math.random() * this.canvas.width, y: Math.random() * this.canvas.height, speed: 1 + Math.random() * 2, size: 2 + Math.random() * 4, wobble: Math.random() * 2 });
     }
     this.animateSnow();
   }
@@ -244,29 +254,15 @@ class WeatherAnimator {
     this.ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
 
     this.particles.forEach(p => {
-      this.ctx.beginPath();
-      this.ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
-      this.ctx.fill();
-
-      p.y += p.speed;
-      p.x += Math.sin(p.y / 30) * p.wobble;
-
-      if (p.y > this.canvas.height) {
-        p.y = -10;
-        p.x = Math.random() * this.canvas.width;
-      }
+      this.ctx.beginPath(); this.ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2); this.ctx.fill();
+      p.y += p.speed; p.x += Math.sin(p.y / 30) * p.wobble;
+      if (p.y > this.canvas.height) { p.y = -10; p.x = Math.random() * this.canvas.width; }
     });
 
-    if (state.settings.animations) {
-      this._raf = requestAnimationFrame(() => this.animateSnow());
-    }
+    if (state.settings.animations) this._raf = requestAnimationFrame(() => this.animateSnow());
   }
 
-  createSunny() {
-    if (!this.ctx) return;
-    this.clear();
-    this.animateSunny();
-  }
+  createSunny() { if (this.ctx) { this.clear(); this.animateSunny(); } }
 
   animateSunny() {
     if (!this.ctx) return;
@@ -278,40 +274,24 @@ class WeatherAnimator {
 
     for (let i = 0; i < 12; i++) {
       const angle = (i / 12) * Math.PI * 2 + time * 0.1;
-      const gradient = this.ctx.createLinearGradient(
-        centerX, centerY,
-        centerX + Math.cos(angle) * 100,
-        centerY + Math.sin(angle) * 100
-      );
+      const gradient = this.ctx.createLinearGradient(centerX, centerY, centerX + Math.cos(angle) * 100, centerY + Math.sin(angle) * 100);
       gradient.addColorStop(0, 'rgba(255, 220, 100, 0.3)');
       gradient.addColorStop(1, 'transparent');
-
       this.ctx.strokeStyle = gradient;
       this.ctx.lineWidth = 3;
       this.ctx.beginPath();
       this.ctx.moveTo(centerX, centerY);
-      this.ctx.lineTo(
-        centerX + Math.cos(angle) * 80,
-        centerY + Math.sin(angle) * 80
-      );
+      this.ctx.lineTo(centerX + Math.cos(angle) * 80, centerY + Math.sin(angle) * 80);
       this.ctx.stroke();
     }
-
-    if (state.settings.animations) {
-      this._raf = requestAnimationFrame(() => this.animateSunny());
-    }
+    if (state.settings.animations) this._raf = requestAnimationFrame(() => this.animateSunny());
   }
 
   createCloudy() {
     if (!this.ctx) return;
     this.clear();
     for (let i = 0; i < 5; i++) {
-      this.particles.push({
-        x: Math.random() * this.canvas.width,
-        y: 50 + Math.random() * 200,
-        speed: 0.3 + Math.random() * 0.5,
-        size: 80 + Math.random() * 40
-      });
+      this.particles.push({ x: Math.random() * this.canvas.width, y: 50 + Math.random() * 200, speed: 0.3 + Math.random() * 0.5, size: 80 + Math.random() * 40 });
     }
     this.animateCloudy();
   }
@@ -327,16 +307,11 @@ class WeatherAnimator {
       this.ctx.arc(p.x + p.size * 0.6, p.y, p.size * 0.8, 0, Math.PI * 2);
       this.ctx.arc(p.x + p.size * 1.2, p.y, p.size * 0.9, 0, Math.PI * 2);
       this.ctx.fill();
-
       p.x += p.speed;
-      if (p.x > this.canvas.width + p.size * 2) {
-        p.x = -p.size * 2;
-      }
+      if (p.x > this.canvas.width + p.size * 2) p.x = -p.size * 2;
     });
 
-    if (state.settings.animations) {
-      this._raf = requestAnimationFrame(() => this.animateCloudy());
-    }
+    if (state.settings.animations) this._raf = requestAnimationFrame(() => this.animateCloudy());
   }
 }
 
@@ -344,10 +319,7 @@ let animator = null;
 
 function updateWeatherAnimation() {
   if (!animator) animator = new WeatherAnimator();
-  if (!state.settings.animations || !animator.ctx) {
-    animator && animator.clear();
-    return;
-  }
+  if (!state.settings.animations || !animator.ctx) { animator && animator.clear(); return; }
   const weather = state.weather.city1 || state.weather.city2;
   if (!weather) return;
   const code = weather.current.weather_code;
@@ -363,27 +335,23 @@ function updateWeatherAnimation() {
 async function fetchWithTimeout(url, ms = 12000) {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), ms);
-  try {
-    const res = await fetch(url, { signal: ctrl.signal });
-    return res;
-  } finally {
-    clearTimeout(t);
-  }
+  try { return await fetch(url, { signal: ctrl.signal }); }
+  finally { clearTimeout(t); }
 }
 
 /* ============================== FETCHERS ============================== */
 
 async function fetchWeather(lat, lon) {
-  const url = `https://api.open-meteo.com/v1/forecast` +
-    `?latitude=${lat}&longitude=${lon}` +
-    `&current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m,uv_index,visibility` +
-    `&hourly=temperature_2m,precipitation_probability,weather_code,uv_index,wind_speed_10m` +
-    `&daily=weather_code,temperature_2m_max,temperature_2m_min,sunrise,sunset,precipitation_probability_max,wind_speed_10m_max,uv_index_max` +
-    `&forecast_days=7` +
-    `&temperature_unit=${state.settings.tempUnit}` +
-    `&wind_speed_unit=mph` +
-    `&timezone=America%2FNew_York` +
-    `&past_days=0`;
+  const url = `https://api.open-meteo.com/v1/forecast`
+    + `?latitude=${lat}&longitude=${lon}`
+    + `&current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m,uv_index,visibility`
+    + `&hourly=temperature_2m,precipitation_probability,weather_code,uv_index,wind_speed_10m`
+    + `&daily=weather_code,temperature_2m_max,temperature_2m_min,sunrise,sunset,precipitation_probability_max,wind_speed_10m_max,uv_index_max`
+    + `&forecast_days=7`
+    + `&temperature_unit=${state.settings.tempUnit}`
+    + `&wind_speed_unit=mph`
+    + `&timezone=America%2FNew_York`
+    + `&past_days=0`;
   const response = await fetchWithTimeout(url);
   if (!response.ok) throw new Error(`HTTP error, status: ${response.status}`);
   return response.json();
@@ -396,20 +364,12 @@ async function fetch30DayHistory(lat, lon) {
     startDate.setDate(startDate.getDate() - 30);
     const start = startDate.toISOString().split('T')[0];
     const end = endDate.toISOString().split('T')[0];
-
     const url = `https://archive-api.open-meteo.com/v1/archive?latitude=${lat}&longitude=${lon}&start_date=${start}&end_date=${end}&daily=temperature_2m_max,temperature_2m_min&temperature_unit=${state.settings.tempUnit}&timezone=America%2FNew_York`;
     const response = await fetchWithTimeout(url);
     if (!response.ok) return [];
     const data = await response.json();
-
-    return data.daily.time.map((date, i) => ({
-      date,
-      high: data.daily.temperature_2m_max[i],
-      low: data.daily.temperature_2m_min[i]
-    }));
-  } catch {
-    return [];
-  }
+    return data.daily.time.map((date, i) => ({ date, high: data.daily.temperature_2m_max[i], low: data.daily.temperature_2m_min[i] }));
+  } catch { return []; }
 }
 
 async function fetchAQI(lat, lon) {
@@ -418,9 +378,7 @@ async function fetchAQI(lat, lon) {
     const response = await fetchWithTimeout(url);
     if (!response.ok) return null;
     return response.json();
-  } catch {
-    return null;
-  }
+  } catch { return null; }
 }
 
 async function fetchHistoricalWeather(lat, lon) {
@@ -429,14 +387,11 @@ async function fetchHistoricalWeather(lat, lon) {
     const lastYear = new Date(today);
     lastYear.setFullYear(lastYear.getFullYear() - 1);
     const dateStr = lastYear.toISOString().split('T')[0];
-
     const url = `https://archive-api.open-meteo.com/v1/archive?latitude=${lat}&longitude=${lon}&start_date=${dateStr}&end_date=${dateStr}&daily=temperature_2m_max,temperature_2m_min,precipitation_sum&temperature_unit=${state.settings.tempUnit}&timezone=America%2FNew_York`;
     const response = await fetchWithTimeout(url);
     if (!response.ok) return null;
     return response.json();
-  } catch {
-    return null;
-  }
+  } catch { return null; }
 }
 
 /* ============================ SHARE FEATURE =========================== */
@@ -459,23 +414,13 @@ async function shareWeather() {
 
   try {
     await loadHtml2Canvas();
-
-    const canvas = await html2canvas(shareDiv, {
-      backgroundColor: '#000',
-      scale: 2,
-      useCORS: true
-    });
+    const canvas = await html2canvas(shareDiv, { backgroundColor: '#000', scale: 2, useCORS: true });
 
     const fileName = 'armstrong-weather.png';
-
-    const fallbackDownload = () => {
+    const download = () => {
       const url = canvas.toDataURL('image/png');
       const a = document.createElement('a');
-      a.href = url;
-      a.download = fileName;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
+      a.href = url; a.download = fileName; document.body.appendChild(a); a.click(); a.remove();
     };
 
     if (navigator.share) {
@@ -485,25 +430,15 @@ async function shareWeather() {
             let f;
             try { f = new File([blob], fileName, { type: 'image/png' }); } catch { f = blob; }
             if (navigator.canShare && navigator.canShare({ files: [f] })) {
-              await navigator.share({
-                files: [f],
-                title: 'Armstrong Weather Dashboard',
-                text: `Weather comparison, ${state.settings.city1.name} vs ${state.settings.city2.name}`
-              });
+              await navigator.share({ files: [f], title: PAGE_TITLE, text: `Weather comparison, ${state.settings.city1.name} vs ${state.settings.city2.name}` });
               return;
             }
           }
-          await navigator.share({
-            title: 'Armstrong Weather Dashboard',
-            text: `Weather comparison, ${state.settings.city1.name} vs ${state.settings.city2.name}`,
-            url: canvas.toDataURL('image/png')
-          });
-        } catch {
-          fallbackDownload();
-        }
+          await navigator.share({ title: PAGE_TITLE, text: `Weather comparison, ${state.settings.city1.name} vs ${state.settings.city2.name}`, url: canvas.toDataURL('image/png') });
+        } catch { download(); }
       }, 'image/png');
     } else {
-      fallbackDownload();
+      download();
     }
   } catch (error) {
     console.error('Share failed:', error);
@@ -512,9 +447,7 @@ async function shareWeather() {
       const canvas = await html2canvas(shareDiv, { backgroundColor: '#000', scale: 2, useCORS: true });
       const url = canvas.toDataURL('image/png');
       const a = document.createElement('a');
-      a.href = url;
-      a.download = 'armstrong-weather.png';
-      a.click();
+      a.href = url; a.download = 'armstrong-weather.png'; a.click();
     } catch {}
   }
 }
@@ -554,8 +487,8 @@ function renderHourlyList(cityLabel, rows, theme) {
         ${rows.map(r => `
           <div class="flex items-center justify-between py-2">
             <div class="w-20 ${theme.text}">${r.timeLabel}</div>
-            <div class="w-8 text-xl">${getWeatherIcon(r.code)}</div>
-            <div class="flex-1 flex gap-4 justify-end text-sm">
+            <div class="w-8 text-xl text-center">${getWeatherIcon(r.code)}</div>
+            <div class="flex-1 flex gap-4 justify-end text-sm whitespace-nowrap">
               <span class="${theme.text}"><strong>${r.temp}°</strong></span>
               <span class="${theme.text} opacity-70">💧 ${r.precip}%</span>
               <span class="${theme.text} opacity-70">☀️ ${r.uv}</span>
@@ -568,21 +501,11 @@ function renderHourlyList(cityLabel, rows, theme) {
   `;
 }
 
-function openDayDetail(dateYMD) {
-  state.detailDate = dateYMD;
-  state.detailOpen = true;
-  render();
-}
-
-function closeDayDetail() {
-  state.detailOpen = false;
-  state.detailDate = null;
-  render();
-}
+function openDayDetail(dateYMD) { state.detailDate = dateYMD; state.detailOpen = true; render(); }
+function closeDayDetail() { state.detailOpen = false; state.detailDate = null; render(); }
 
 function renderDayDetailModal(theme) {
   if (!state.detailOpen || !state.detailDate) return '';
-
   const dateLabel = formatFullDayDate(state.detailDate);
   const city1Rows = buildHourlyForDate(state.weather.city1, state.detailDate);
   const city2Rows = buildHourlyForDate(state.weather.city2, state.detailDate);
@@ -628,9 +551,7 @@ function prepare24HourData() {
   if (!state.weather.city1 || !state.weather.city2) return [];
   const hourly1 = state.weather.city1.hourly;
   const hourly2 = state.weather.city2.hourly;
-
   const key = nyNowHourKey();
-
   let start = hourly1.time.findIndex(t => t === key);
   if (start < 0) start = hourly1.time.findIndex(t => t > key);
   if (start < 0) start = 0;
@@ -653,7 +574,6 @@ function prepare7DayData() {
   const daily1 = state.weather.city1.daily;
   const daily2 = state.weather.city2.daily;
   const s = findStartIdxTodayOrNext(daily1.time);
-
   return daily1.time.slice(s, s + 7).map((date, i) => ({
     date,
     dateShort: formatYMDToLabel(date),
@@ -683,13 +603,9 @@ function renderCharts() {
         { label: state.settings.city2.name, data: hourlyData.map(d => d.temp2), borderColor: 'rgb(245, 158, 11)', tension: 0.4 }
       ]
     }, {
-      responsive: true,
-      maintainAspectRatio: false,
+      responsive: true, maintainAspectRatio: false,
       plugins: { legend: { labels: { color: textColor } } },
-      scales: {
-        x: { ticks: { color: textColor }, grid: { color: gridColor } },
-        y: { ticks: { color: textColor }, grid: { color: gridColor } }
-      }
+      scales: { x: { ticks: { color: textColor }, grid: { color: gridColor } }, y: { ticks: { color: textColor }, grid: { color: gridColor } } }
     });
 
     createChart('uvChart', 'line', {
@@ -699,13 +615,9 @@ function renderCharts() {
         { label: state.settings.city2.name, data: hourlyData.map(d => d.uv2), borderColor: 'rgb(236, 72, 153)', tension: 0.4 }
       ]
     }, {
-      responsive: true,
-      maintainAspectRatio: false,
+      responsive: true, maintainAspectRatio: false,
       plugins: { legend: { labels: { color: textColor } } },
-      scales: {
-        x: { ticks: { color: textColor }, grid: { color: gridColor } },
-        y: { ticks: { color: textColor }, grid: { color: gridColor } }
-      }
+      scales: { x: { ticks: { color: textColor }, grid: { color: gridColor } }, y: { ticks: { color: textColor }, grid: { color: gridColor } } }
     });
 
     createChart('weeklyChart', 'bar', {
@@ -717,13 +629,9 @@ function renderCharts() {
         { label: `${state.settings.city2.name} Low`, data: weeklyData.map(d => d.low2), backgroundColor: 'rgba(180, 83, 9, 0.8)' }
       ]
     }, {
-      responsive: true,
-      maintainAspectRatio: false,
+      responsive: true, maintainAspectRatio: false,
       plugins: { legend: { labels: { color: textColor } } },
-      scales: {
-        x: { ticks: { color: textColor }, grid: { color: gridColor } },
-        y: { ticks: { color: textColor }, grid: { color: gridColor } }
-      }
+      scales: { x: { ticks: { color: textColor }, grid: { color: gridColor } }, y: { ticks: { color: textColor }, grid: { color: gridColor } } }
     });
 
     if (history30.city1.length > 0 && history30.city2.length > 0) {
@@ -736,13 +644,9 @@ function renderCharts() {
           { label: `${state.settings.city2.name} Low`, data: history30.city2.map(d => d.low), borderColor: 'rgba(245, 158, 11, 0.5)', tension: 0.4, fill: false }
         ]
       }, {
-        responsive: true,
-        maintainAspectRatio: false,
+        responsive: true, maintainAspectRatio: false,
         plugins: { legend: { labels: { color: textColor } } },
-        scales: {
-          x: { ticks: { color: textColor, maxTicksLimit: 10 }, grid: { color: gridColor } },
-          y: { ticks: { color: textColor }, grid: { color: gridColor } }
-        }
+        scales: { x: { ticks: { color: textColor, maxTicksLimit: 10 }, grid: { color: gridColor } }, y: { ticks: { color: textColor }, grid: { color: gridColor } } }
       });
     }
   }, 100);
@@ -768,6 +672,8 @@ function getUVLevel(uv) {
 }
 
 function render() {
+  updatePageTitle();
+
   const theme = THEMES[state.settings.theme];
   document.body.className = theme.bg;
   const app = document.getElementById('app');
@@ -807,7 +713,7 @@ function render() {
     <div class="min-h-screen p-4 md:p-8 ${theme.bg}">
       <div class="max-w-7xl mx-auto">
         <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
-          <h1 class="text-3xl md:text-4xl font-light ${theme.text}">Armstrong Weather Dashboard</h1>
+          <h1 class="text-3xl md:text-4xl font-light ${theme.text}">${PAGE_TITLE}</h1>
           <div class="flex gap-2 flex-wrap">
             <button onclick="state.battleMode = !state.battleMode; render();" class="flex items-center gap-2 ${state.battleMode ? 'bg-green-600' : theme.card} ${theme.border} border hover:opacity-80 px-4 py-2 rounded-xl transition-colors text-white">
               ⚔️ Battle
@@ -829,7 +735,7 @@ function render() {
         ${state.battleMode ? `
           <div class="${theme.card} ${theme.border} border rounded-2xl p-6 mb-6">
             <div class="text-center">
-              <div class="text-2xl md:text-3xl font-bold ${theme.text} mb-4">🏆 Best Place To Be: ${bestPlace.winner.city}</div>
+              <div class="text-2xl md:text-3xl font-bold ${theme.text} mb-2">🏆 Best Place To Be: ${bestPlace.winner.city}</div>
               <div class="text-4xl md:text-6xl font-light ${theme.text} mb-4">Weather Score: ${bestPlace.winner.score}/100</div>
               <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6">
                 <div class="text-left">
@@ -841,14 +747,17 @@ function render() {
                   <div class="text-sm ${theme.text} opacity-60">Try again tomorrow for a rematch</div>
                 </div>
               </div>
+              <div class="mt-6 text-sm ${theme.text} opacity-80">
+                🏅 All time wins, ${state.settings.city1.name}: <strong>${state.winStats.city1}</strong>, ${state.settings.city2.name}: <strong>${state.winStats.city2}</strong>
+              </div>
             </div>
           </div>
         ` : ''}
 
         <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
           <div class="${theme.card} ${theme.border} border rounded-2xl p-4">
-            <div class="text-center">
-              <div class="text-4xl mb-2">${moonPhase.emoji}</div>
+            <div class="flex flex-col items-center justify-center text-center min-h-[92px]">
+              <div class="text-5xl leading-none mb-2">${moonPhase.emoji}</div>
               <div class="${theme.text} font-medium">${moonPhase.name}</div>
             </div>
           </div>
@@ -878,8 +787,8 @@ function render() {
         </div>
 
         <div id="shareCapture">
-          ${state.activeTab === 'overview' ? renderOverview(city1, city2, theme, bestPlace) : 
-            state.activeTab === 'charts' ? renderChartsView(theme) : 
+          ${state.activeTab === 'overview' ? renderOverview(city1, city2, theme, bestPlace) :
+            state.activeTab === 'charts' ? renderChartsView(theme) :
             state.activeTab === 'outfit' ? renderOutfitView(city1, city2, theme) :
             renderInsightsView(city1, city2, theme)}
         </div>
@@ -929,7 +838,7 @@ function renderWeatherCard(data, cityName, theme, isWinner, animationClass) {
             <div class="${theme.text} opacity-60 text-xs md:text-sm mb-1 md:mb-2">💧 Humidity</div>
             <div class="text-xl md:text-2xl ${theme.text} number-roll">${current.relative_humidity_2m}%</div>
           </div>
-          <div class="${theme.card} ${theme.border} border rounded-xl p-3 md:p-4 weather-metric fade-in" style="animation-delay: 0.2s;">
+          <div class="${theme.card} ${theme.border} border rounded-xl p-3 md:p-4 weather-metric fade-in" style="animation-delay: 0.2s%;">
             <div class="${theme.text} opacity-60 text-xs md:text-sm mb-1 md:mb-2">💨 Wind</div>
             <div class="text-xl md:text-2xl ${theme.text} number-roll">${Math.round(current.wind_speed_10m)} mph</div>
           </div>
@@ -945,7 +854,7 @@ function renderWeatherCard(data, cityName, theme, isWinner, animationClass) {
             <div class="${theme.text} opacity-60 text-xs md:text-sm mb-1 md:mb-2">🌅 Sunrise</div>
             <div class="text-base md:text-xl ${theme.text}">${formatLocalClock(daily.sunrise[todayIdx])}</div>
           </div>
-          <div class="${theme.card} ${theme.border} border rounded-xl p-3 md:p-4 weather-metric fade-in" style="animation-delay: 0.6s;">
+          <div class="${theme.card} ${theme.border} border rounded-xl p-3 md:p-4 weather-metric fade-in" style="animation-delay: 0.6s%;">
             <div class="${theme.text} opacity-60 text-xs md:text-sm mb-1 md:mb-2">🌇 Sunset</div>
             <div class="text-base md:text-xl ${theme.text}">${formatLocalClock(daily.sunset[todayIdx])}</div>
           </div>
@@ -963,9 +872,9 @@ function renderWeatherCard(data, cityName, theme, isWinner, animationClass) {
                    style="animation-delay: ${0.8 + i * 0.1}s;"
                    onclick="openDayDetail('${date}')"
                    title="View hourly forecast">
-                <span class="${theme.text} w-40 md:w-52 text-xs md:text-sm">${formatShortDayDate(date)}</span>
-                <span class="text-xl md:text-2xl weather-icon">${getWeatherIcon(daily.weather_code[idx])}</span>
-                <div class="flex gap-2 md:gap-4 items-center text-xs md:text-sm">
+                <span class="${theme.text} w-36 md:w-48 shrink-0 text-xs md:text-sm">${formatYMDToLabel(date)}</span>
+                <span class="text-xl md:text-2xl weather-icon w-10 md:w-12 text-center shrink-0">${getWeatherIcon(daily.weather_code[idx])}</span>
+                <div class="flex gap-3 md:gap-4 items-center text-xs md:text-sm whitespace-nowrap min-w-[220px] justify-end">
                   <span class="${theme.text} opacity-60">💧 ${daily.precipitation_probability_max[idx]}%</span>
                   <span class="${dayUV.color}">☀️ ${Math.round(daily.uv_index_max[idx] || 0)}</span>
                   <span class="${theme.text} font-medium">${Math.round(daily.temperature_2m_max[idx])}°</span>
@@ -983,7 +892,6 @@ function renderWeatherCard(data, cityName, theme, isWinner, animationClass) {
 function renderOutfitView(city1, city2, theme) {
   const outfit1 = getOutfitRecommendation(city1);
   const outfit2 = getOutfitRecommendation(city2);
-  
   return `
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
       <div class="${theme.card} ${theme.border} border rounded-2xl p-6 md:p-8 slide-in-left">
@@ -997,7 +905,6 @@ function renderOutfitView(city1, city2, theme) {
           `).join('')}
         </div>
       </div>
-      
       <div class="${theme.card} ${theme.border} border rounded-2xl p-6 md:p-8 slide-in-right">
         <h2 class="text-2xl font-light mb-6 ${theme.text}">${state.settings.city2.name}</h2>
         <div class="${theme.text} font-medium mb-4">👔 What to Wear Today</div>
@@ -1049,22 +956,16 @@ function getOutfitRecommendation(data) {
   const temp = data.current.temperature_2m;
   const code = data.current.weather_code;
   const wind = data.current.wind_speed_10m;
-
   const outfit = [];
-
   if (temp < 30) outfit.push('🧥 Heavy winter coat', '🧣 Scarf and gloves', '🥾 Insulated boots');
   else if (temp < 50) outfit.push('🧥 Jacket or coat', '👖 Long pants', '👟 Closed-toe shoes');
   else if (temp < 70) outfit.push('👕 Long sleeve shirt', '👖 Pants or jeans');
   else if (temp < 85) outfit.push('👕 T-shirt', '🩳 Shorts or light pants');
   else outfit.push('👕 Light breathable clothing', '🩳 Shorts', '🧢 Hat for sun protection');
-
   if (code > 60 && code <= 67) outfit.push('☔ Umbrella', '🥾 Waterproof shoes');
   else if (code > 67) outfit.push('🧤 Waterproof gloves', '☔ Rain gear');
-
   if (wind > 15) outfit.push('🧥 Windbreaker');
-
   if (data.current.uv_index > 6) outfit.push('🕶️ Sunglasses', '🧴 Sunscreen');
-
   return outfit.slice(0, 5);
 }
 
@@ -1085,7 +986,6 @@ function getWeatherAdvice(data, aqi) {
   const aqiLevel = aqi?.current?.us_aqi || 0;
 
   const advice = [];
-
   if (weatherCode === 0) advice.push('☀️ Beautiful day, perfect for outdoor activities');
   else if (weatherCode <= 3) advice.push('⛅ Partly cloudy, great weather for a walk');
   else if (weatherCode <= 67) advice.push('☔ Rain expected, bring an umbrella');
@@ -1099,7 +999,6 @@ function getWeatherAdvice(data, aqi) {
   if (aqiLevel > 100) advice.push('😷 Poor air quality, consider limiting outdoor activity');
 
   if (advice.length === 0) advice.push('👍 Good weather for most activities');
-
   return advice;
 }
 
@@ -1127,7 +1026,6 @@ function getComparisonStats(data1, data2) {
 }
 
 /* =========================== BEST PLACE SCORE ========================= */
-/* 0 to 100 scale, higher is better */
 
 function calculateBestPlace() {
   const { city1, city2 } = state.weather;
@@ -1141,32 +1039,25 @@ function calculateBestPlace() {
   function clamp01(x) { return Math.max(0, Math.min(1, x)); }
 
   function scoreCity(city) {
-    // Start at 50, add or subtract based on comfort, clamp to 0 through 100
     let s = 50;
+    const t = city.current.temperature_2m;
+    const h = city.current.relative_humidity_2m;
+    const uv = city.current.uv_index || 0;
+    const code = city.current.weather_code || 0;
 
-    const t = city.current.temperature_2m;       // ideal near 75
-    const h = city.current.relative_humidity_2m; // ideal near 50
-    const uv = city.current.uv_index || 0;       // lower is better
-    const code = city.current.weather_code || 0; // lower is clearer
-
-    // Temperature, up to +25 if very close to 75, small penalty if far
     const tempDiffFromIdeal = Math.abs(t - 75);
     const tempPlus = 25 * clamp01(1 - tempDiffFromIdeal / 30);
     const tempMinus = 25 * clamp01((tempDiffFromIdeal - 15) / 20);
     s += tempPlus - tempMinus;
 
-    // Humidity, up to +10 near 50, minus up to 10 if far from 50
     const humDiff = Math.abs(h - 50);
     s += 10 * clamp01(1 - humDiff / 50) - 10 * clamp01((humDiff - 20) / 40);
 
-    // UV penalty, up to 10 points if UV is 12
     if (uv > 8) s -= 10 * clamp01((uv - 8) / 4);
 
-    // Weather code penalty
-    if (code > 60 && code <= 67) s -= 10; // rain
-    if (code > 67) s -= 20;               // snow or storms
+    if (code > 60 && code <= 67) s -= 10;
+    if (code > 67) s -= 20;
 
-    // Clamp to 0 through 100
     s = Math.max(0, Math.min(100, Math.round(s)));
     return s;
   }
@@ -1192,7 +1083,7 @@ function calculateBestPlace() {
 
   return {
     winner: { key: winnerKey, city: winnerCity, score: winnerKey === 'city1' ? s1 : s2, reasons },
-    loser: { key: loserKey, city: loserCity, score: loserKey === 'city1' ? s1 : s2, reasons: [] }
+    loser:  { key: loserKey,  city: loserCity,  score: loserKey  === 'city1' ? s1 : s2, reasons: [] }
   };
 }
 
@@ -1203,7 +1094,6 @@ function renderInsightsView(city1, city2, theme) {
   const advice2 = getWeatherAdvice(city2, state.aqi.city2);
   const streak1 = state.streaks.city1;
   const streak2 = state.streaks.city2;
-  
   return `
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
       ${renderInsightCard(city1, state.settings.city1.name, advice1, streak1, state.historical.city1, theme, 'city1', 'slide-in-left')}
@@ -1215,12 +1105,11 @@ function renderInsightsView(city1, city2, theme) {
 function renderInsightCard(data, cityName, advice, streak, historical, theme, cityKey, animationClass) {
   const aqiData = state.aqi[cityKey];
   const aqiInfo = getAQILevel(aqiData?.current?.us_aqi);
-  
+
   let historicalHTML = '';
   if (historical && historical.daily) {
     const daily = data.daily;
     const todayIdx = findStartIdxTodayOrNext(daily.time);
-
     const lastYearHigh = historical.daily.temperature_2m_max[0];
     const lastYearLow = historical.daily.temperature_2m_min[0];
     const currentHigh = daily.temperature_2m_max[todayIdx];
@@ -1237,18 +1126,18 @@ function renderInsightCard(data, cityName, advice, streak, historical, theme, ci
       </div>
     `;
   }
-  
+
   return `
     <div class="${theme.card} ${theme.border} border rounded-2xl p-6 mobile-p-4 ${animationClass}">
       <h2 class="text-2xl font-light mb-6 ${theme.text} fade-in">${cityName}</h2>
-      
+
       <div class="${theme.card} ${theme.border} border rounded-xl p-4 mb-4 fade-in" style="animation-delay: 0.1s;">
         <div class="${theme.text} font-medium mb-2">💡 Weather Advice</div>
         <div class="space-y-2">
           ${advice.map((a, i) => `<div class="text-sm ${theme.text} opacity-80 fade-in" style="animation-delay: ${0.2 + i * 0.1}s;">• ${a}</div>`).join('')}
         </div>
       </div>
-      
+
       ${aqiData ? `
         <div class="${theme.card} ${theme.border} border rounded-xl p-4 mb-4 fade-in" style="animation-delay: 0.3s;">
           <div class="${theme.text} font-medium mb-2">🌫️ Air Quality Index</div>
@@ -1347,9 +1236,7 @@ function renderSettings(theme) {
           <div>
             <label class="block ${theme.text} mb-2">Theme</label>
             <select id="theme" class="w-full ${theme.card} ${theme.border} border rounded-xl px-4 py-3 ${theme.text}">
-              ${Object.entries(THEMES).map(([key, t]) => 
-                `<option value="${key}" ${state.settings.theme === key ? 'selected' : ''}>${t.name}</option>`
-              ).join('')}
+              ${Object.entries(THEMES).map(([key, t]) => `<option value="${key}" ${state.settings.theme === key ? 'selected' : ''}>${t.name}</option>`).join('')}
             </select>
           </div>
 
@@ -1401,7 +1288,6 @@ function updateStreaks() {
   ['city1', 'city2'].forEach(city => {
     const data = state.weather[city];
     if (!data) return;
-
     const code = data.current.weather_code;
     const condition = code === 0 ? 'sunny' : code <= 67 ? 'rainy' : 'snowy';
 
@@ -1418,15 +1304,25 @@ function updateStreaks() {
   localStorage.setItem('weatherStreaks', JSON.stringify(state.streaks));
 }
 
+/* ============================= WIN TRACKING =========================== */
+
+function updateWinStats(bestPlace) {
+  const today = todayYMD_NY();
+  if (state.winStats.lastDate === today) return;
+  state.winStats[bestPlace.winner.key] = (state.winStats[bestPlace.winner.key] || 0) + 1;
+  state.winStats.lastDate = today;
+  localStorage.setItem('weatherWins', JSON.stringify(state.winStats));
+}
+
+/* ========================== TRANSITIONS WATCH ========================= */
+
 function checkWeatherChanges() {
   ['city1', 'city2'].forEach(city => {
     const prev = state.previousWeather[city];
     const curr = state.weather[city];
     if (!prev || !curr) return;
-
     const tempChange = Math.abs(curr.current.temperature_2m - prev.current.temperature_2m);
     if (tempChange > 2) triggerWeatherTransition();
-
     if (curr.current.weather_code !== prev.current.weather_code) triggerWeatherTransition();
   });
 }
@@ -1447,24 +1343,16 @@ function triggerWeatherTransition() {
 async function loadWeather() {
   try {
     if (!document.getElementById('app')) {
-      const a = document.createElement('div');
-      a.id = 'app';
-      document.body.appendChild(a);
+      const a = document.createElement('div'); a.id = 'app'; document.body.appendChild(a);
     }
 
-    state.loading = true;
-    state.error = null;
+    state.loading = true; state.error = null;
 
     if (state.weather.city1 && state.weather.city2) {
-      state.previousWeather = {
-        city1: JSON.parse(JSON.stringify(state.weather.city1)),
-        city2: JSON.parse(JSON.stringify(state.weather.city2))
-      };
+      state.previousWeather = { city1: JSON.parse(JSON.stringify(state.weather.city1)), city2: JSON.parse(JSON.stringify(state.weather.city2)) };
     }
 
-    try { render(); } catch (e) {
-      console.error('Render while loading failed:', e);
-    }
+    try { render(); } catch (e) { console.error('Render while loading failed:', e); }
 
     const [data1, data2, aqi1, aqi2, hist1, hist2, history1, history2] = await Promise.all([
       fetchWeather(state.settings.city1.lat, state.settings.city1.lon),
@@ -1483,12 +1371,17 @@ async function loadWeather() {
     state.history30Days = { city1: history1, city2: history2 };
     state.lastUpdate = new Date();
 
+    // Title and favicon
+    updatePageTitle();
+    updateFaviconFromWeather();
+
+    // Scoring, streaks, animation, transitions
+    const bestPlace = calculateBestPlace();
+    updateWinStats(bestPlace);
     updateStreaks();
     updateWeatherAnimation();
 
-    if (state.previousWeather.city1) {
-      checkWeatherChanges();
-    }
+    if (state.previousWeather.city1) checkWeatherChanges();
   } catch (error) {
     console.error('Error:', error);
     state.error = String(error && error.message ? error.message : error);
@@ -1497,22 +1390,16 @@ async function loadWeather() {
     try { render(); } catch (e) {
       console.error('Render after load failed:', e);
       const app = document.getElementById('app');
-      if (app) {
-        app.innerHTML = `<div style="padding:16px;color:#fca5a5;">UI failed to render. ${e}</div>`;
-      }
+      if (app) app.innerHTML = `<div style="padding:16px;color:#fca5a5;">UI failed to render. ${e}</div>`;
     }
   }
 }
 
 window.addEventListener('DOMContentLoaded', () => {
   injectStyles();
-  if (!document.getElementById('app')) {
-    const a = document.createElement('div');
-    a.id = 'app';
-    document.body.appendChild(a);
-  }
+  updatePageTitle();
+  if (!document.querySelector('link[rel="icon"]#app-favicon')) setFaviconEmoji('⛅');
+  if (!document.getElementById('app')) { const a = document.createElement('div'); a.id = 'app'; document.body.appendChild(a); }
   loadWeather();
-  if (state.settings.autoRefresh) {
-    setInterval(loadWeather, 3600000);
-  }
+  if (state.settings.autoRefresh) setInterval(loadWeather, 3600000);
 });
