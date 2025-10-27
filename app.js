@@ -830,14 +830,14 @@ function render() {
           <div class="${theme.card} ${theme.border} border rounded-2xl p-6 mb-6 ${bestPlace.winner.key === 'city1' ? 'battle-animation' : ''}">
             <div class="text-center">
               <div class="text-2xl md:text-3xl font-bold ${theme.text} mb-4">🏆 Best Place To Be: ${bestPlace.winner.city}</div>
-              <div class="text-4xl md:text-6xl font-light ${theme.text} mb-4">Weather Score: ${bestPlace.winner.score}/200</div>
+              <div class="text-4xl md:text-6xl font-light ${theme.text} mb-4">Weather Score: ${bestPlace.winner.score}/100</div>
               <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6">
                 <div class="text-left">
                   <div class="text-lg font-medium ${theme.text} mb-2">✅ Why ${bestPlace.winner.city} wins:</div>
                   ${bestPlace.winner.reasons.map(r => `<div class="text-sm ${theme.text} opacity-80">• ${r}</div>`).join('')}
                 </div>
                 <div class="text-left">
-                  <div class="text-lg font-medium ${theme.text} mb-2">${bestPlace.loser.city} Score: ${bestPlace.loser.score}/200</div>
+                  <div class="text-lg font-medium ${theme.text} mb-2">${bestPlace.loser.city} Score: ${bestPlace.loser.score}/100</div>
                   <div class="text-sm ${theme.text} opacity-60">Try again tomorrow for a rematch!</div>
                 </div>
               </div>
@@ -1086,7 +1086,7 @@ function getWeatherAdvice(data, aqi) {
 
   const advice = [];
 
-  if (weatherCode === 0) advice.push('☀️ Beautiful day. Perfect for outdoor activities');
+  if (weatherCode === 0) advice.push('☀️ Beautiful day, perfect for outdoor activities');
   else if (weatherCode <= 3) advice.push('⛅ Partly cloudy, great weather for a walk');
   else if (weatherCode <= 67) advice.push('☔ Rain expected, bring an umbrella');
   else if (weatherCode <= 77) advice.push('🌨️ Snow expected, dress warmly');
@@ -1127,7 +1127,7 @@ function getComparisonStats(data1, data2) {
 }
 
 /* =========================== BEST PLACE SCORE ========================= */
-
+/* 0 to 100 scale, higher is better */
 function calculateBestPlace() {
   const { city1, city2 } = state.weather;
   if (!city1 || !city2) {
@@ -1137,26 +1137,36 @@ function calculateBestPlace() {
     };
   }
 
+  function clamp01(x) { return Math.max(0, Math.min(1, x)); }
+
   function scoreCity(city) {
-    const t = city.current.temperature_2m;
-    const uv = city.current.uv_index || 0;
-    const h = city.current.relative_humidity_2m || 0;
-    const code = city.current.weather_code || 0;
+    // Start at 50, add or subtract based on comfort, clamp to 0..100
+    let s = 50;
 
-    let s = 100;
-    if (t < 32) s -= 20;
-    else if (t > 90) s -= 15;
-    else if (t >= 70 && t <= 80) s += 10;
+    const t = city.current.temperature_2m;       // ideal band 70 to 80
+    const h = city.current.relative_humidity_2m; // ideal near 50
+    const uv = city.current.uv_index || 0;       // lower better
+    const code = city.current.weather_code || 0; // clear better
 
-    if (h > 70) s -= 10;
-    else if (h < 30) s -= 5;
+    // Temperature, up to +25 for ideal, down to -25 for extreme
+    const tempDiffFromIdeal = Math.abs(t - 75);
+    const tempComponent = 25 * clamp01(1 - tempDiffFromIdeal / 30); // 0 to +25
+    s += tempComponent - 25 * clamp01((tempDiffFromIdeal - 15) / 20); // small penalty if far outside
 
-    if (uv > 8) s -= 10;
+    // Humidity, up to +10 near 50, down to -10 if very high or very low
+    const humDiff = Math.abs(h - 50);
+    s += 10 * clamp01(1 - humDiff / 50) - 10 * clamp01((humDiff - 20) / 40);
 
-    if (code > 60 && code <= 67) s -= 15;
-    if (code > 67) s -= 25;
+    // UV penalty, up to -10 if UV > 8
+    if (uv > 8) s -= 10 * clamp01((uv - 8) / 4);
 
-    return Math.max(0, Math.min(200, s));
+    // Precip or snow penalty
+    if (code > 60 && code <= 67) s -= 10;  // rain
+    if (code > 67) s -= 20;                // snow or storms
+
+    // Clamp to 0..100
+    s = Math.max(0, Math.min(100, Math.round(s)));
+    return s;
   }
 
   const s1 = scoreCity(city1);
@@ -1172,14 +1182,15 @@ function calculateBestPlace() {
     const w = state.weather[winnerKey];
     const l = state.weather[loserKey];
     if (w.current.temperature_2m < 85 && l.current.temperature_2m > 85) reasons.push('More comfortable temperature');
+    if (Math.abs(w.current.temperature_2m - 75) < Math.abs(l.current.temperature_2m - 75)) reasons.push('Closer to ideal temp');
     if (w.current.relative_humidity_2m < l.current.relative_humidity_2m) reasons.push('Less humidity');
     if ((w.current.uv_index || 0) < (l.current.uv_index || 0)) reasons.push('Lower UV exposure');
     if ((w.current.weather_code || 0) < (l.current.weather_code || 0)) reasons.push('Better weather conditions');
   }
 
   return {
-    winner: { key: winnerKey, city: winnerCity, score: s1 >= s2 ? s1 : s2, reasons },
-    loser: { key: loserKey, city: loserCity, score: s1 < s2 ? s1 : s2, reasons: [] }
+    winner: { key: winnerKey, city: winnerCity, score: winnerKey === 'city1' ? s1 : s2, reasons },
+    loser: { key: loserKey, city: loserCity, score: loserKey === 'city1' ? s1 : s2, reasons: [] }
   };
 }
 
